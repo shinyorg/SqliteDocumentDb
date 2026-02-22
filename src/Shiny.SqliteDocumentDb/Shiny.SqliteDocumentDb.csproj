@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
-        <IsPackable>true</IsPackable>
         <Description>SQLite-based document store with JSON querying for .NET</Description>
         <PackageTags>sqlite;documentdb;json;nosql;shiny</PackageTags>
     </PropertyGroup>

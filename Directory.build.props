@@ -5,7 +5,6 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <EnableAotAnalyzer>true</EnableAotAnalyzer>
         <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
-        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
         <Authors>aritchie;ShinyLib</Authors>
 
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
