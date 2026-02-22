@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization.Metadata;
 
 namespace Shiny.SqliteDocumentDb;
@@ -91,6 +92,56 @@ public interface IDocumentStore
     /// Only the fields referenced in the selector are extracted from the stored JSON.
     /// </summary>
     Task<IReadOnlyList<TResult>> Query<T, TResult>(
+        Expression<Func<T, bool>> predicate,
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class;
+
+    /// <summary>
+    /// Streams all documents of the specified type one-at-a-time.
+    /// </summary>
+    [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    IAsyncEnumerable<T> GetAllStream<T>(CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Streams all documents of the specified type one-at-a-time (AOT-safe).
+    /// </summary>
+    IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Streams all documents of the specified type, projected to a different type at the SQL level (AOT-safe).
+    /// </summary>
+    IAsyncEnumerable<TResult> GetAllStream<T, TResult>(
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class;
+
+    /// <summary>
+    /// Streams documents matching a SQL WHERE clause fragment one-at-a-time.
+    /// </summary>
+    [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    IAsyncEnumerable<T> QueryStream<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Streams documents matching a SQL WHERE clause fragment one-at-a-time (AOT-safe).
+    /// </summary>
+    IAsyncEnumerable<T> QueryStream<T>(string whereClause, JsonTypeInfo<T> jsonTypeInfo, object? parameters = null, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Streams documents matching a LINQ expression predicate one-at-a-time (AOT-safe).
+    /// </summary>
+    IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Streams documents matching a LINQ expression predicate, projected to a different type at the SQL level (AOT-safe).
+    /// </summary>
+    IAsyncEnumerable<TResult> QueryStream<T, TResult>(
         Expression<Func<T, bool>> predicate,
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<T> sourceTypeInfo,

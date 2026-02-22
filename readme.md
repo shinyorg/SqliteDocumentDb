@@ -383,6 +383,67 @@ o => new OrderDetail { Customer = o.CustomerName, HasPriority = o.Tags.Any(t => 
 
 Inner predicates support the same operators as WHERE clause expressions: comparisons, logical operators, null checks, string methods (`Contains`, `StartsWith`, `EndsWith`), and captured variables.
 
+### Streaming Queries
+
+All query methods that return `IReadOnlyList<T>` have streaming counterparts that return `IAsyncEnumerable<T>`, yielding results one-at-a-time without buffering the entire result set into memory.
+
+#### GetAllStream
+
+```csharp
+await foreach (var user in store.GetAllStream<User>(ctx.User))
+{
+    Console.WriteLine(user.Name);
+}
+```
+
+#### GetAllStream with projection
+
+```csharp
+await foreach (var summary in store.GetAllStream<Order, OrderSummary>(
+    o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
+    ctx.Order,
+    ctx.OrderSummary))
+{
+    Console.WriteLine($"{summary.Customer} in {summary.City}");
+}
+```
+
+#### QueryStream with expression
+
+```csharp
+await foreach (var user in store.QueryStream<User>(u => u.Age > 30, ctx.User))
+{
+    Console.WriteLine(user.Name);
+}
+```
+
+#### QueryStream with raw SQL
+
+```csharp
+await foreach (var user in store.QueryStream<User>(
+    "json_extract(Data, '$.name') = @name",
+    ctx.User,
+    new { name = "Alice" }))
+{
+    Console.WriteLine(user.Name);
+}
+```
+
+#### QueryStream with projection
+
+```csharp
+await foreach (var summary in store.QueryStream<Order, OrderSummary>(
+    o => o.Status == "Shipped",
+    o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
+    ctx.Order,
+    ctx.OrderSummary))
+{
+    Console.WriteLine(summary.Customer);
+}
+```
+
+> **Note:** The streaming methods hold the internal semaphore (or database reader) for the duration of enumeration. Consume the results promptly and avoid interleaving other store operations within the same `await foreach` loop.
+
 ### Raw SQL queries
 
 For advanced queries not covered by expressions, use raw SQL with `json_extract`:

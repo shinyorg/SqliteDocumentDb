@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Data.Sqlite;
@@ -255,6 +256,148 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
 
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
+    }
+
+    async IAsyncEnumerable<T> ReadStreamAsync<T>(
+        Action<SqliteCommand> configureCommand,
+        Func<string, T> deserialize,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await this.semaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await this.EnsureInitializedAsync(ct).ConfigureAwait(false);
+
+            await using var cmd = this.connection.CreateCommand();
+            configureCommand(cmd);
+
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var json = reader.GetString(0);
+                yield return deserialize(json);
+            }
+        }
+        finally
+        {
+            this.semaphore.Release();
+        }
+    }
+
+    [RequiresUnreferencedCode(ReflectionMessage)]
+    [RequiresDynamicCode(ReflectionMessage)]
+    public IAsyncEnumerable<T> GetAllStream<T>(CancellationToken cancellationToken = default) where T : class
+    {
+        var typeName = this.ResolveTypeName<T>();
+        return this.ReadStreamAsync<T>(
+            cmd =>
+            {
+                cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+                cmd.Parameters.AddWithValue("@typeName", typeName);
+            },
+            json => JsonSerializer.Deserialize<T>(json, this.jsonOptions)!,
+            cancellationToken);
+    }
+
+    public IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    {
+        var typeName = this.ResolveTypeName<T>();
+        return this.ReadStreamAsync<T>(
+            cmd =>
+            {
+                cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+                cmd.Parameters.AddWithValue("@typeName", typeName);
+            },
+            json => JsonSerializer.Deserialize(json, jsonTypeInfo)!,
+            cancellationToken);
+    }
+
+    public IAsyncEnumerable<TResult> GetAllStream<T, TResult>(
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class
+    {
+        var typeName = this.ResolveTypeName<T>();
+        var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        return this.ReadStreamAsync<TResult>(
+            cmd =>
+            {
+                cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName;";
+                cmd.Parameters.AddWithValue("@typeName", typeName);
+                BindDictionaryParameters(cmd, projParms);
+            },
+            json => JsonSerializer.Deserialize(json, resultTypeInfo)!,
+            cancellationToken);
+    }
+
+    [RequiresUnreferencedCode(ReflectionMessage)]
+    [RequiresDynamicCode(ReflectionMessage)]
+    public IAsyncEnumerable<T> QueryStream<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class
+    {
+        var typeName = this.ResolveTypeName<T>();
+        return this.ReadStreamAsync<T>(
+            cmd =>
+            {
+                cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+                cmd.Parameters.AddWithValue("@typeName", typeName);
+                BindParameters(cmd, parameters);
+            },
+            json => JsonSerializer.Deserialize<T>(json, this.jsonOptions)!,
+            cancellationToken);
+    }
+
+    public IAsyncEnumerable<T> QueryStream<T>(string whereClause, JsonTypeInfo<T> jsonTypeInfo, object? parameters = null, CancellationToken cancellationToken = default) where T : class
+    {
+        var typeName = this.ResolveTypeName<T>();
+        return this.ReadStreamAsync<T>(
+            cmd =>
+            {
+                cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+                cmd.Parameters.AddWithValue("@typeName", typeName);
+                BindParameters(cmd, parameters);
+            },
+            json => JsonSerializer.Deserialize(json, jsonTypeInfo)!,
+            cancellationToken);
+    }
+
+    public IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    {
+        var typeName = this.ResolveTypeName<T>();
+        var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo);
+        return this.ReadStreamAsync<T>(
+            cmd =>
+            {
+                cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+                cmd.Parameters.AddWithValue("@typeName", typeName);
+                BindDictionaryParameters(cmd, parms);
+            },
+            json => JsonSerializer.Deserialize(json, jsonTypeInfo)!,
+            cancellationToken);
+    }
+
+    public IAsyncEnumerable<TResult> QueryStream<T, TResult>(
+        Expression<Func<T, bool>> predicate,
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class
+    {
+        var typeName = this.ResolveTypeName<T>();
+        var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
+        var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        return this.ReadStreamAsync<TResult>(
+            cmd =>
+            {
+                cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+                cmd.Parameters.AddWithValue("@typeName", typeName);
+                BindDictionaryParameters(cmd, parms);
+                BindDictionaryParameters(cmd, projParms);
+            },
+            json => JsonSerializer.Deserialize(json, resultTypeInfo)!,
+            cancellationToken);
     }
 
     public Task<int> Count<T>(string? whereClause = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
@@ -648,6 +791,108 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindParameters(cmd, parameters);
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
+        }
+
+        [RequiresUnreferencedCode(ReflectionMessage)]
+        [RequiresDynamicCode(ReflectionMessage)]
+        public async IAsyncEnumerable<T> GetAllStream<T>([EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        {
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                yield return JsonSerializer.Deserialize<T>(reader.GetString(0), this.jsonOptions)!;
+        }
+
+        public async IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        {
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                yield return JsonSerializer.Deserialize(reader.GetString(0), jsonTypeInfo)!;
+        }
+
+        public async IAsyncEnumerable<TResult> GetAllStream<T, TResult>(
+            Expression<Func<T, TResult>> selector,
+            JsonTypeInfo<T> sourceTypeInfo,
+            JsonTypeInfo<TResult> resultTypeInfo,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+            where T : class where TResult : class
+        {
+            var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName;";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, projParms);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                yield return JsonSerializer.Deserialize(reader.GetString(0), resultTypeInfo)!;
+        }
+
+        [RequiresUnreferencedCode(ReflectionMessage)]
+        [RequiresDynamicCode(ReflectionMessage)]
+        public async IAsyncEnumerable<T> QueryStream<T>(string whereClause, object? parameters = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        {
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindParameters(cmd, parameters);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                yield return JsonSerializer.Deserialize<T>(reader.GetString(0), this.jsonOptions)!;
+        }
+
+        public async IAsyncEnumerable<T> QueryStream<T>(string whereClause, JsonTypeInfo<T> jsonTypeInfo, object? parameters = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        {
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindParameters(cmd, parameters);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                yield return JsonSerializer.Deserialize(reader.GetString(0), jsonTypeInfo)!;
+        }
+
+        public async IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        {
+            var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo);
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, parms);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                yield return JsonSerializer.Deserialize(reader.GetString(0), jsonTypeInfo)!;
+        }
+
+        public async IAsyncEnumerable<TResult> QueryStream<T, TResult>(
+            Expression<Func<T, bool>> predicate,
+            Expression<Func<T, TResult>> selector,
+            JsonTypeInfo<T> sourceTypeInfo,
+            JsonTypeInfo<TResult> resultTypeInfo,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+            where T : class where TResult : class
+        {
+            var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
+            var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, parms);
+            BindDictionaryParameters(cmd, projParms);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                yield return JsonSerializer.Deserialize(reader.GetString(0), resultTypeInfo)!;
         }
 
         public async Task<int> Count<T>(string? whereClause = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
