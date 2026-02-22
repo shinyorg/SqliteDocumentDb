@@ -1,8 +1,19 @@
 # Shiny.SqliteDocumentDb
 
-A lightweight SQLite-based document store for .NET with JSON querying and full AOT/trimming support.
+A lightweight SQLite-based document store for .NET that turns SQLite into a schema-free JSON document database with LINQ querying and full AOT/trimming support.
 
-## Why use this instead of Microsoft.Data.Sqlite or sqlite-net-pcl?
+## Features
+
+- **Zero schema, zero migrations** — store entire object graphs (nested objects, child collections) as JSON documents. No `CREATE TABLE`, no `ALTER TABLE`, no JOINs.
+- **LINQ expression queries** — write `o => o.ShippingAddress.City == "Portland"` and it translates to `json_extract` SQL automatically. Supports nested properties, `Any()`, `Count()`, string methods, null checks, and captured variables.
+- **`IAsyncEnumerable<T>` streaming** — yield results one-at-a-time with `GetAllStream` and `QueryStream` instead of buffering into a list. Eliminates Gen1 GC pressure at scale with comparable throughput.
+- **Expression-based JSON indexes** — `store.CreateIndexAsync<User>(u => u.Name, ctx.User)` creates a partial `json_extract` index. Up to **30x faster** queries on indexed properties.
+- **SQL-level projections** — project into DTOs with `json_object` at the database level. No full document deserialization needed.
+- **Full AOT/trimming support** — every API has a `JsonTypeInfo<T>` overload for source-generated JSON serialization. No reflection required.
+- **10-30x faster nested inserts** vs sqlite-net — one write per document vs multiple table inserts with foreign keys. 2-10x faster reads on nested data.
+- **Transactions** — `store.RunInTransaction(async tx => { ... })` with automatic commit/rollback.
+
+## Comparison with alternatives
 
 | | Shiny.SqliteDocumentDb | Microsoft.Data.Sqlite (raw ADO.NET) | sqlite-net-pcl |
 |---|---|---|---|
@@ -99,6 +110,59 @@ This is where the document store architecture pays off. sqlite-net requires 3 ta
 | sqlite-net Query (3 tables + rehydrate) | 2.23 ms | 1,013 KB |
 
 > For nested data, the document store is **10-30x faster on inserts** and **2-10x faster on reads** because it stores/retrieves the entire object graph in a single operation vs. multiple table writes and JOINs.
+
+### Index impact
+
+JSON property indexes (`CreateIndexAsync`) dramatically speed up equality queries by letting SQLite use a B-tree lookup instead of scanning every row with `json_extract`.
+
+#### Flat POCO query (filter by name, 1000 records)
+
+| Method | Mean | Allocated |
+|---|---|---|
+| Query without index | 274 us | 4.2 KB |
+| Query with index | 9.2 us | 4.1 KB |
+
+> **~30x faster** — the indexed query resolves in microseconds because SQLite uses the partial index directly.
+
+#### Nested query (filter by ShippingAddress.City, 1000 records, ~200 matches)
+
+| Method | Mean | Allocated |
+|---|---|---|
+| Nested query without index | 971 us | 435 KB |
+| Nested query with index | 310 us | 435 KB |
+
+> **~3x faster** — the index eliminates the full table scan, but read + deserialize time for ~200 matching documents dominates. Indexes give the biggest wins on selective queries that return few results.
+
+### Streaming (IAsyncEnumerable) vs buffered
+
+Streaming yields results one-at-a-time without building an intermediate `List<T>`. Throughput is comparable; the benefit is reduced peak memory and eliminating Gen1 GC pressure at larger scales.
+
+#### Flat POCO
+
+| Method | Count | Mean | Gen1 | Allocated |
+|---|---|---|---|---|
+| GetAll (buffered) | 100 | 44.1 us | 0.18 | 29.4 KB |
+| GetAllStream (IAsyncEnumerable) | 100 | 42.7 us | — | 27.3 KB |
+| GetAll (buffered) | 1000 | 384 us | 12.2 | 283 KB |
+| GetAllStream (IAsyncEnumerable) | 1000 | 393 us | — | 266 KB |
+
+#### Nested objects
+
+| Method | Count | Mean | Gen1 | Allocated |
+|---|---|---|---|---|
+| GetAll nested (buffered) | 100 | 154 us | 6.1 | 218 KB |
+| GetAllStream nested (IAsyncEnumerable) | 100 | 156 us | — | 216 KB |
+| GetAll nested (buffered) | 1000 | 1,541 us | 130.9 | 2,165 KB |
+| GetAllStream nested (IAsyncEnumerable) | 1000 | 1,512 us | 2.0 | 2,149 KB |
+
+#### Nested query (filter by status, ~500 matches from 1000)
+
+| Method | Mean | Gen1 | Allocated |
+|---|---|---|---|
+| Query nested (buffered) | 1.49 ms | 58.6 | 1.06 MB |
+| QueryStream nested (IAsyncEnumerable) | 1.43 ms | — | 1.05 MB |
+
+> Streaming eliminates Gen1 GC collections entirely at scale. Throughput is within ~2% of buffered. Use streaming when you process results incrementally rather than needing the full list upfront.
 
 ## Installation
 

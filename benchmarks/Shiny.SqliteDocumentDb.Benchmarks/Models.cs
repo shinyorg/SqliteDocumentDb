@@ -93,4 +93,6 @@ public class SqliteOrderTag
 
 [JsonSerializable(typeof(BenchmarkUser))]
 [JsonSerializable(typeof(BenchmarkOrder))]
+[JsonSerializable(typeof(BenchmarkAddress))]
+[JsonSerializable(typeof(BenchmarkOrderLine))]
 public partial class BenchmarkJsonContext : JsonSerializerContext;
