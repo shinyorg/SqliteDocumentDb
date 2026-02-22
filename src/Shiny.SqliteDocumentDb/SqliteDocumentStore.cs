@@ -384,6 +384,62 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         }, cancellationToken);
     }
 
+    public Task CreateIndexAsync<T>(Expression<Func<T, object>> expression, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    {
+        var jsonPath = IndexExpressionHelper.ResolveJsonPath(expression, this.jsonOptions, jsonTypeInfo);
+        var typeName = this.ResolveTypeName<T>();
+        var indexName = IndexExpressionHelper.BuildIndexName(typeName, jsonPath);
+
+        return this.ExecuteAsync(async () =>
+        {
+            await using var cmd = this.connection.CreateCommand();
+            cmd.CommandText = $"CREATE INDEX IF NOT EXISTS {indexName} ON documents (json_extract(Data, '$.{jsonPath}')) WHERE TypeName = '{typeName}';";
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    public Task DropIndexAsync<T>(Expression<Func<T, object>> expression, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    {
+        var jsonPath = IndexExpressionHelper.ResolveJsonPath(expression, this.jsonOptions, jsonTypeInfo);
+        var typeName = this.ResolveTypeName<T>();
+        var indexName = IndexExpressionHelper.BuildIndexName(typeName, jsonPath);
+
+        return this.ExecuteAsync(async () =>
+        {
+            await using var cmd = this.connection.CreateCommand();
+            cmd.CommandText = $"DROP INDEX IF EXISTS {indexName};";
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    public Task DropAllIndexesAsync<T>(CancellationToken cancellationToken = default) where T : class
+    {
+        var typeName = this.ResolveTypeName<T>();
+        var sanitizedType = typeName.Replace('.', '_');
+        var prefix = $"idx_json_{sanitizedType}_%";
+
+        return this.ExecuteAsync(async () =>
+        {
+            await using var queryCmd = this.connection.CreateCommand();
+            queryCmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'documents' AND name LIKE @prefix;";
+            queryCmd.Parameters.AddWithValue("@prefix", prefix);
+
+            var indexNames = new List<string>();
+            await using (var reader = await queryCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    indexNames.Add(reader.GetString(0));
+            }
+
+            foreach (var indexName in indexNames)
+            {
+                await using var dropCmd = this.connection.CreateCommand();
+                dropCmd.CommandText = $"DROP INDEX IF EXISTS {indexName};";
+                await dropCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }, cancellationToken);
+    }
+
     [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Parameter binding via reflection is intentional; dictionary overload available for AOT.")]
     static void BindParameters(SqliteCommand cmd, object? parameters)
     {

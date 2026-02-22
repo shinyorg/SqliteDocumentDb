@@ -13,6 +13,7 @@ A lightweight SQLite-based document store for .NET with JSON querying and full A
 | **Migrations** | Not needed — schema-free JSON | You own every migration | You own every migration |
 | **Projections** | SQL-level `json_object` projections | Manual SQL | Not available |
 | **Transactions** | `store.RunInTransaction(async tx => ...)` | Manual `BeginTransaction` + `Commit`/`Rollback` | `RunInTransactionAsync` available |
+| **JSON property indexes** | `store.CreateIndexAsync<User>(u => u.Name, ctx.User)` — LINQ expression indexes on `json_extract` | Manual `CREATE INDEX` on `json_extract` | Column indexes only |
 | **Best fit** | Object graphs, nested data, rapid prototyping, settings stores, caches | Full SQL control, complex reporting queries, performance-critical bulk ops | Simple flat-table CRUD |
 
 **In short:** If your data has nested objects or child collections (orders with line items, users with addresses, configs with nested sections), this library lets you store and query the entire object graph with a single call — no table design, no JOINs, no migrations. For flat, single-table CRUD on simple POCOs, sqlite-net-pcl or raw ADO.NET may be simpler.
@@ -415,6 +416,46 @@ await store.RunInTransaction(async tx =>
     // Commits on success, rolls back on exception
 });
 ```
+
+## Index Management
+
+For frequently queried JSON properties, you can create expression indexes on `json_extract` to speed up lookups. These methods are on `SqliteDocumentStore` directly (not on `IDocumentStore`) since index management is DDL, not document CRUD.
+
+### Create an index on a property
+
+```csharp
+await store.CreateIndexAsync<User>(u => u.Name, ctx.User);
+```
+
+This generates a partial index scoped to the document type:
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_json_User_name
+ON documents (json_extract(Data, '$.name'))
+WHERE TypeName = 'User';
+```
+
+### Nested properties
+
+```csharp
+await store.CreateIndexAsync<Order>(o => o.ShippingAddress.City, ctx.Order);
+```
+
+### Drop a specific index
+
+```csharp
+await store.DropIndexAsync<User>(u => u.Name, ctx.User);
+```
+
+### Drop all JSON indexes for a type
+
+Removes all `idx_json_` indexes for the given type while preserving built-in indexes and indexes on other types.
+
+```csharp
+await store.DropAllIndexesAsync<User>();
+```
+
+Index names are deterministic (`idx_json_{typeName}_{jsonPath}` with dots replaced by underscores), so `CreateIndexAsync` and `DropIndexAsync` always agree on the name for a given expression. `CreateIndexAsync` uses `IF NOT EXISTS`, so calling it multiple times is safe.
 
 ## Supported Expression Reference
 
