@@ -1,11 +1,11 @@
-# Shiny.Data.Documents
+# Shiny.SqliteDocumentDb
 
 A lightweight SQLite-based document store for .NET with JSON querying and full AOT/trimming support.
 
 ## Installation
 
 ```bash
-dotnet add package Shiny.Data.Documents
+dotnet add package Shiny.SqliteDocumentDb
 ```
 
 ## Setup

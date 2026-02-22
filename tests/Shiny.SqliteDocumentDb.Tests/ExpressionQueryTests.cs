@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Shiny.Data.Documents.Tests.Fixtures;
+using Shiny.SqliteDocumentDb.Tests.Fixtures;
 using Xunit;
 
-namespace Shiny.Data.Documents.Tests;
+namespace Shiny.SqliteDocumentDb.Tests;
 
 public class ExpressionQueryTests : IDisposable
 {

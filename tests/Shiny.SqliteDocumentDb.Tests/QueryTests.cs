@@ -1,9 +1,9 @@
 #pragma warning disable IL2026, IL3050 // Reflection-based serialization in tests is fine
 
-using Shiny.Data.Documents.Tests.Fixtures;
+using Shiny.SqliteDocumentDb.Tests.Fixtures;
 using Xunit;
 
-namespace Shiny.Data.Documents.Tests;
+namespace Shiny.SqliteDocumentDb.Tests;
 
 public class QueryTests : IDisposable
 {

@@ -1,4 +1,4 @@
-namespace Shiny.Data.Documents.Tests.Fixtures;
+namespace Shiny.SqliteDocumentDb.Tests.Fixtures;
 
 public class User
 {

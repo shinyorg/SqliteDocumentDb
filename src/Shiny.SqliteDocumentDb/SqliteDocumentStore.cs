@@ -3,9 +3,9 @@ using System.Linq.Expressions;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Data.Sqlite;
-using Shiny.Data.Documents.Internal;
+using Shiny.SqliteDocumentDb.Internal;
 
-namespace Shiny.Data.Documents;
+namespace Shiny.SqliteDocumentDb;
 
 public class SqliteDocumentStore : IDocumentStore, IDisposable
 {

@@ -9,6 +9,6 @@
     <File Path="readme.md" />
     <File Path="version.json" />
   </Folder>
-  <Project Path="src/Shiny.Data.Documents/Shiny.Data.Documents.csproj" />
-  <Project Path="tests/Shiny.Data.Documents.Tests/Shiny.Data.Documents.Tests.csproj" />
+  <Project Path="src/Shiny.SqliteDocumentDb/Shiny.SqliteDocumentDb.csproj" />
+  <Project Path="tests/Shiny.SqliteDocumentDb.Tests/Shiny.SqliteDocumentDb.Tests.csproj" />
 </Solution>

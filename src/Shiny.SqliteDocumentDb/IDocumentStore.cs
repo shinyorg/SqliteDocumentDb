@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Text.Json.Serialization.Metadata;
 
-namespace Shiny.Data.Documents;
+namespace Shiny.SqliteDocumentDb;
 
 public interface IDocumentStore
 {

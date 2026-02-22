@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Shiny.Data.Documents;
+namespace Shiny.SqliteDocumentDb;
 
 public enum TypeNameResolution
 {

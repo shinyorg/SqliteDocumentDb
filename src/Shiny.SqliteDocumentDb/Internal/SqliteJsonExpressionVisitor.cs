@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
-namespace Shiny.Data.Documents.Internal;
+namespace Shiny.SqliteDocumentDb.Internal;
 
 sealed class SqliteJsonExpressionVisitor : ExpressionVisitor
 {

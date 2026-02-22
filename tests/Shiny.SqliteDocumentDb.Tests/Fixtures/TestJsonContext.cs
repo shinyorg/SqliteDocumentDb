@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Shiny.Data.Documents.Tests.Fixtures;
+namespace Shiny.SqliteDocumentDb.Tests.Fixtures;
 
 [JsonSerializable(typeof(User))]
 [JsonSerializable(typeof(Product))]

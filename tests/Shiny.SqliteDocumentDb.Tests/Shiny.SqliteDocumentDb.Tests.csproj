@@ -12,6 +12,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Shiny.Data.Documents\Shiny.Data.Documents.csproj" />
+    <ProjectReference Include="..\..\src\Shiny.SqliteDocumentDb\Shiny.SqliteDocumentDb.csproj" />
   </ItemGroup>
 </Project>

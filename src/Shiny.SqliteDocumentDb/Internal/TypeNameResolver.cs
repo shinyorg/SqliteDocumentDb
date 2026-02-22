@@ -1,4 +1,4 @@
-namespace Shiny.Data.Documents.Internal;
+namespace Shiny.SqliteDocumentDb.Internal;
 
 internal static class TypeNameResolver
 {

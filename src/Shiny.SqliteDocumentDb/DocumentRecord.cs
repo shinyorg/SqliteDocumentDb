@@ -1,4 +1,4 @@
-namespace Shiny.Data.Documents;
+namespace Shiny.SqliteDocumentDb;
 
 public record DocumentRecord(
     string Id,
