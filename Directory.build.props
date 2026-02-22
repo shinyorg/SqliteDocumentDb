@@ -14,7 +14,7 @@
 
         <PackageIcon>icon.png</PackageIcon>
         <PackageReadmeFile>readme.md</PackageReadmeFile>
-        <PackageReleaseNotes>https://shinylib.net/release-notes/tableview</PackageReleaseNotes>
+        <PackageReleaseNotes>https://shinylib.net/release-notes</PackageReleaseNotes>
         <PackageProjectUrl>https://shinylib.net</PackageProjectUrl>
         <PackageTags>sqlite document documentdb shiny aot</PackageTags>
     </PropertyGroup>
