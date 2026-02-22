@@ -210,6 +210,25 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         }, cancellationToken);
     }
 
+    public Task<IReadOnlyList<TResult>> GetAll<T, TResult>(
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class
+    {
+        var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        return this.ExecuteAsync(async () =>
+        {
+            await using var cmd = this.connection.CreateCommand();
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName;";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, projParms);
+
+            return await ReadListAsync<TResult>(cmd, json => JsonSerializer.Deserialize(json, resultTypeInfo)!, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
     [RequiresUnreferencedCode(ReflectionMessage)]
     [RequiresDynamicCode(ReflectionMessage)]
     public Task<IReadOnlyList<T>> Query<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class
@@ -266,6 +285,28 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             BindDictionaryParameters(cmd, parms);
 
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<TResult>> Query<T, TResult>(
+        Expression<Func<T, bool>> predicate,
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class
+    {
+        var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
+        var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        return this.ExecuteAsync(async () =>
+        {
+            await using var cmd = this.connection.CreateCommand();
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, parms);
+            BindDictionaryParameters(cmd, projParms);
+
+            return await ReadListAsync<TResult>(cmd, json => JsonSerializer.Deserialize(json, resultTypeInfo)!, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
@@ -518,6 +559,21 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
         }
 
+        public async Task<IReadOnlyList<TResult>> GetAll<T, TResult>(
+            Expression<Func<T, TResult>> selector,
+            JsonTypeInfo<T> sourceTypeInfo,
+            JsonTypeInfo<TResult> resultTypeInfo,
+            CancellationToken cancellationToken = default)
+            where T : class where TResult : class
+        {
+            var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName;";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, projParms);
+            return await ReadListAsync<TResult>(cmd, json => JsonSerializer.Deserialize(json, resultTypeInfo)!, cancellationToken).ConfigureAwait(false);
+        }
+
         [RequiresUnreferencedCode(ReflectionMessage)]
         [RequiresDynamicCode(ReflectionMessage)]
         public async Task<IReadOnlyList<T>> Query<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class
@@ -560,6 +616,24 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, parms);
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task<IReadOnlyList<TResult>> Query<T, TResult>(
+            Expression<Func<T, bool>> predicate,
+            Expression<Func<T, TResult>> selector,
+            JsonTypeInfo<T> sourceTypeInfo,
+            JsonTypeInfo<TResult> resultTypeInfo,
+            CancellationToken cancellationToken = default)
+            where T : class where TResult : class
+        {
+            var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
+            var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, parms);
+            BindDictionaryParameters(cmd, projParms);
+            return await ReadListAsync<TResult>(cmd, json => JsonSerializer.Deserialize(json, resultTypeInfo)!, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<int> Count<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class

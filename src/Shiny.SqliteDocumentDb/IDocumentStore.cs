@@ -57,6 +57,17 @@ public interface IDocumentStore
     Task<IReadOnlyList<T>> GetAll<T>(JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
+    /// Gets all documents of the specified type, projected to a different type at the SQL level (AOT-safe).
+    /// Only the fields referenced in the selector are extracted from the stored JSON.
+    /// </summary>
+    Task<IReadOnlyList<TResult>> GetAll<T, TResult>(
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class;
+
+    /// <summary>
     /// Queries documents using a SQL WHERE clause fragment with json_extract.
     /// </summary>
     /// <param name="whereClause">SQL WHERE clause, e.g. "json_extract(Data, '$.Name') = @name"</param>
@@ -74,6 +85,18 @@ public interface IDocumentStore
     /// Queries documents using a LINQ expression predicate (AOT-safe).
     /// </summary>
     Task<IReadOnlyList<T>> Query<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Queries documents using a LINQ expression predicate and projects to a different type at the SQL level (AOT-safe).
+    /// Only the fields referenced in the selector are extracted from the stored JSON.
+    /// </summary>
+    Task<IReadOnlyList<TResult>> Query<T, TResult>(
+        Expression<Func<T, bool>> predicate,
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class;
 
     /// <summary>
     /// Counts documents of the specified type, with an optional WHERE filter.

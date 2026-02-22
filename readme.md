@@ -228,6 +228,63 @@ var cutoffAge = 65;
 int deleted = await store.Remove<User>(u => u.Age > cutoffAge, ctx.User);
 ```
 
+### Projections
+
+Project query results into a different shape using a selector expression. Only the selected properties are extracted at the SQL level via `json_object` — no full document deserialization needed.
+
+#### Flat projection
+
+```csharp
+var results = await store.Query<User, UserSummary>(
+    u => u.Age == 25,
+    u => new UserSummary { Name = u.Name, Email = u.Email },
+    ctx.User,
+    ctx.UserSummary);
+```
+
+#### Nested source properties
+
+```csharp
+var results = await store.Query<Order, OrderSummary>(
+    o => o.Status == "Shipped",
+    o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
+    ctx.Order,
+    ctx.OrderSummary);
+```
+
+#### GetAll with projection
+
+```csharp
+var results = await store.GetAll<Order, OrderDetail>(
+    o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count() },
+    ctx.Order,
+    ctx.OrderDetail);
+```
+
+#### Collection methods in projections
+
+Use `Count()`, `Count(predicate)`, `Any()`, and `Any(predicate)` inside projection selectors:
+
+```csharp
+// Count() — total number of elements
+o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count() }
+// SQL: json_array_length(Data, '$.lines')
+
+// Count(predicate) — filtered count
+o => new OrderDetail { Customer = o.CustomerName, GadgetCount = o.Lines.Count(l => l.ProductName == "Gadget") }
+// SQL: (SELECT COUNT(*) FROM json_each(Data, '$.lines') WHERE json_extract(value, '$.productName') = @pp0)
+
+// Any() — has any elements
+o => new OrderDetail { Customer = o.CustomerName, HasLines = o.Lines.Any() }
+// SQL: CASE WHEN json_array_length(Data, '$.lines') > 0 THEN json('true') ELSE json('false') END
+
+// Any(predicate) — any element matches
+o => new OrderDetail { Customer = o.CustomerName, HasPriority = o.Tags.Any(t => t == "priority") }
+// SQL: CASE WHEN EXISTS (SELECT 1 FROM json_each(Data, '$.tags') WHERE value = @pp0) THEN json('true') ELSE json('false') END
+```
+
+Inner predicates support the same operators as WHERE clause expressions: comparisons, logical operators, null checks, string methods (`Contains`, `StartsWith`, `EndsWith`), and captured variables.
+
 ### Raw SQL queries
 
 For advanced queries not covered by expressions, use raw SQL with `json_extract`:
@@ -285,3 +342,14 @@ await store.RunInTransaction(async tx =>
 | `e.StartDate > cutoff` | `json_extract(Data, '$.startDate') > @p0` (ISO 8601 formatted) |
 | `e.CreatedAt >= start` | `json_extract(Data, '$.createdAt') > @p0` (DateTimeOffset supported) |
 | Captured variables | Extracted from closure at translate time |
+
+### Projection expressions
+
+| Expression | SQL Output |
+|---|---|
+| `x => new R { A = x.Name }` | `json_object('name', json_extract(Data, '$.name'))` |
+| `x => new R { C = x.Nav.Prop }` | `json_object('c', json_extract(Data, '$.nav.prop'))` |
+| `x => new R { N = x.Lines.Count() }` | `json_array_length(Data, '$.lines')` |
+| `x => new R { N = x.Lines.Count(l => ...) }` | `(SELECT COUNT(*) FROM json_each(Data, '$.lines') WHERE ...)` |
+| `x => new R { B = x.Tags.Any() }` | `CASE WHEN json_array_length(...) > 0 THEN json('true') ELSE json('false') END` |
+| `x => new R { B = x.Tags.Any(t => ...) }` | `CASE WHEN EXISTS (SELECT 1 FROM json_each(...) WHERE ...) THEN json('true') ELSE json('false') END` |

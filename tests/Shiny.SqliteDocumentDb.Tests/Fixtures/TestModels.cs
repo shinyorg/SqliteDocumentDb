@@ -43,3 +43,22 @@ public class Order
     public List<OrderLine> Lines { get; set; } = [];
     public List<string> Tags { get; set; } = [];
 }
+
+public class UserSummary
+{
+    public string Name { get; set; } = "";
+    public string? Email { get; set; }
+}
+
+public class OrderSummary
+{
+    public string Customer { get; set; } = "";
+    public string City { get; set; } = "";
+}
+
+public class OrderDetail
+{
+    public string Customer { get; set; } = "";
+    public int LineCount { get; set; }
+    public bool HasPriority { get; set; }
+}
