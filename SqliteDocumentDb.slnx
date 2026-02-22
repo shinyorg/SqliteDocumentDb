@@ -11,4 +11,5 @@
   </Folder>
   <Project Path="src/Shiny.SqliteDocumentDb/Shiny.SqliteDocumentDb.csproj" />
   <Project Path="tests/Shiny.SqliteDocumentDb.Tests/Shiny.SqliteDocumentDb.Tests.csproj" />
+  <Project Path="benchmarks/Shiny.SqliteDocumentDb.Benchmarks/Shiny.SqliteDocumentDb.Benchmarks.csproj" />
 </Solution>

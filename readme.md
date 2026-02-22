@@ -2,6 +2,103 @@
 
 A lightweight SQLite-based document store for .NET with JSON querying and full AOT/trimming support.
 
+## Why use this instead of Microsoft.Data.Sqlite or sqlite-net-pcl?
+
+| | Shiny.SqliteDocumentDb | Microsoft.Data.Sqlite (raw ADO.NET) | sqlite-net-pcl |
+|---|---|---|---|
+| **Schema management** | Zero — just store objects | You write every `CREATE TABLE`, `ALTER TABLE`, migration | Auto-creates flat tables from POCOs |
+| **Nested objects & child collections** | Stored and queried as a single JSON document | Must design normalized tables, write JOINs, manage foreign keys | No support — flat columns only, child collections require separate tables + manual joins |
+| **LINQ queries on nested data** | `store.Query(o => o.Lines.Any(l => l.Price > 10))` | Hand-written `json_extract` SQL | Not possible on nested data |
+| **AOT / trimming** | First-class `JsonTypeInfo<T>` overloads on every API | Manual — you control all SQL | Relies on reflection; no AOT support |
+| **Migrations** | Not needed — schema-free JSON | You own every migration | You own every migration |
+| **Projections** | SQL-level `json_object` projections | Manual SQL | Not available |
+| **Transactions** | `store.RunInTransaction(async tx => ...)` | Manual `BeginTransaction` + `Commit`/`Rollback` | `RunInTransactionAsync` available |
+| **Best fit** | Object graphs, nested data, rapid prototyping, settings stores, caches | Full SQL control, complex reporting queries, performance-critical bulk ops | Simple flat-table CRUD |
+
+**In short:** If your data has nested objects or child collections (orders with line items, users with addresses, configs with nested sections), this library lets you store and query the entire object graph with a single call — no table design, no JOINs, no migrations. For flat, single-table CRUD on simple POCOs, sqlite-net-pcl or raw ADO.NET may be simpler.
+
+## Benchmarks
+
+Measured with [BenchmarkDotNet](https://benchmarkdotnet.org/) v0.14.0 on Apple M2, .NET 10.0.3, macOS. Full source in [`benchmarks/`](benchmarks/).
+
+### Flat POCO (single table)
+
+#### Insert
+
+| Method | Count | Mean |
+|---|---|---|
+| DocumentStore Insert | 10 | 652 us |
+| sqlite-net Insert | 10 | 2,256 us |
+| DocumentStore Insert | 100 | 4.6 ms |
+| sqlite-net Insert | 100 | 23.9 ms |
+| DocumentStore Insert | 1000 | 50.0 ms |
+| sqlite-net Insert | 1000 | 533 ms |
+
+#### Get by ID
+
+| Method | Mean | Allocated |
+|---|---|---|
+| DocumentStore GetById | 3.70 us | 1.8 KB |
+| sqlite-net GetById | 16.20 us | 3.73 KB |
+
+#### Get all
+
+| Method | Count | Mean | Allocated |
+|---|---|---|---|
+| DocumentStore GetAll | 100 | 40.5 us | 29.4 KB |
+| sqlite-net GetAll | 100 | 73.1 us | 28.4 KB |
+| DocumentStore GetAll | 1000 | 377 us | 283 KB |
+| sqlite-net GetAll | 1000 | 457 us | 246 KB |
+
+#### Query (filter by name, 1000 records)
+
+| Method | Mean | Allocated |
+|---|---|---|
+| DocumentStore Query | 243 us | 4.1 KB |
+| sqlite-net Query | 59 us | 5.3 KB |
+
+> sqlite-net is faster for simple indexed-column queries because it queries column values directly, while the document store must use `json_extract`. The document store shines with nested data (see below).
+
+### Nested objects with child collections (Order + Address + OrderLines + Tags)
+
+This is where the document store architecture pays off. sqlite-net requires 3 tables, 6 inserts per order, and 3 queries per read with manual rehydration.
+
+#### Insert (nested)
+
+| Method | Count | Mean |
+|---|---|---|
+| DocumentStore Insert (nested) | 10 | 1.3 ms |
+| sqlite-net Insert (3 tables) | 10 | 15.2 ms |
+| DocumentStore Insert (nested) | 100 | 5.0 ms |
+| sqlite-net Insert (3 tables) | 100 | 170 ms |
+| DocumentStore Insert (nested) | 1000 | 51.7 ms |
+| sqlite-net Insert (3 tables) | 1000 | 1,638 ms |
+
+#### Get by ID (nested)
+
+| Method | Mean | Allocated |
+|---|---|---|
+| DocumentStore GetById (nested) | 4.8 us | 3.7 KB |
+| sqlite-net GetById (3 queries) | 48.6 us | 16.1 KB |
+
+#### Get all (nested)
+
+| Method | Count | Mean | Allocated |
+|---|---|---|---|
+| DocumentStore GetAll (nested) | 100 | 141 us | 218 KB |
+| sqlite-net GetAll (3 tables + rehydrate) | 100 | 329 us | 159 KB |
+| DocumentStore GetAll (nested) | 1000 | 1,530 us | 2,165 KB |
+| sqlite-net GetAll (3 tables + rehydrate) | 1000 | 2,700 us | 1,438 KB |
+
+#### Query (nested, filter by status)
+
+| Method | Mean | Allocated |
+|---|---|---|
+| DocumentStore Query (nested, by status) | 1.38 ms | 1,086 KB |
+| sqlite-net Query (3 tables + rehydrate) | 2.23 ms | 1,013 KB |
+
+> For nested data, the document store is **10-30x faster on inserts** and **2-10x faster on reads** because it stores/retrieves the entire object graph in a single operation vs. multiple table writes and JOINs.
+
 ## Installation
 
 ```bash

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <IsPackable>false</IsPackable>
+        <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+        <EnableAotAnalyzer>false</EnableAotAnalyzer>
+        <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="BenchmarkDotNet" />
+        <PackageReference Include="sqlite-net-pcl" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Shiny.SqliteDocumentDb\Shiny.SqliteDocumentDb.csproj" />
+    </ItemGroup>
+</Project>
