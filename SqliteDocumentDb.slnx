@@ -1,15 +1,18 @@
 <Solution>
-  <Folder Name="/Solution/">
-    <File Path="Directory.build.props" />
-    <File Path="Directory.build.targets" />
-    <File Path="Directory.packages.props" />
-    <File Path="global.json" />
-    <File Path="LICENSE" />
-    <File Path="nuget.config" />
-    <File Path="readme.md" />
-    <File Path="version.json" />
-  </Folder>
-  <Project Path="src/Shiny.SqliteDocumentDb/Shiny.SqliteDocumentDb.csproj" />
-  <Project Path="tests/Shiny.SqliteDocumentDb.Tests/Shiny.SqliteDocumentDb.Tests.csproj" />
-  <Project Path="benchmarks/Shiny.SqliteDocumentDb.Benchmarks/Shiny.SqliteDocumentDb.Benchmarks.csproj" />
+    <Folder Name="/Solution/">
+        <File Path=".github\workflows\build.yml"/>
+        <File Path=".github\workflows\sync-skills.yml" />
+        <File Path="Directory.build.props"/>
+        <File Path="Directory.packages.props"/>
+        <File Path="global.json"/>
+        <File Path="LICENSE"/>
+        <File Path="nuget.config"/>
+        <File Path="nuget.txt"/>
+        <File Path="readme.md"/>
+        <File Path="version.json"/>
+        <File Path="skills\shiny-sqlitedocumentdb\SKILL.md" />
+    </Folder>
+    <Project Path="src/Shiny.SqliteDocumentDb/Shiny.SqliteDocumentDb.csproj"/>
+    <Project Path="tests/Shiny.SqliteDocumentDb.Tests/Shiny.SqliteDocumentDb.Tests.csproj"/>
+    <Project Path="benchmarks/Shiny.SqliteDocumentDb.Benchmarks/Shiny.SqliteDocumentDb.Benchmarks.csproj"/>
 </Solution>

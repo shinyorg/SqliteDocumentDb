@@ -1,5 +1,0 @@
-<Project>
-  <ItemGroup Condition="'$(IsPackable)' == 'true'">
-    <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="" />
-  </ItemGroup>
-</Project>

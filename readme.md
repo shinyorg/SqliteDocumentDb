@@ -1,5 +1,7 @@
 # Shiny.SqliteDocumentDb
 
+[![NuGet](https://img.shields.io/nuget/v/Shiny.SqliteDocumentDb.svg)](https://www.nuget.org/packages/Shiny.SqliteDocumentDb/)
+
 A lightweight SQLite-based document store for .NET that turns SQLite into a schema-free JSON document database with LINQ querying and full AOT/trimming support.
 
 ## Features
