@@ -31,6 +31,42 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 
 **In short:** If your data has nested objects or child collections (orders with line items, users with addresses, configs with nested sections), this library lets you store and query the entire object graph with a single call — no table design, no JOINs, no migrations. For flat, single-table CRUD on simple POCOs, sqlite-net-pcl or raw ADO.NET may be simpler.
 
+## Replacing EF Core on .NET MAUI
+
+Entity Framework Core is a natural choice for server-side .NET, but it becomes a liability on .NET MAUI platforms (iOS, Android, Mac Catalyst). This library is purpose-built for the constraints mobile and desktop apps actually face.
+
+### Why EF Core is a poor fit for MAUI
+
+- **No AOT support.** EF Core relies heavily on runtime reflection and dynamic code generation for change tracking, query compilation, and model building. It carries `[RequiresDynamicCode]` and `[RequiresUnreferencedCode]` attributes throughout its public API. On iOS, where Apple prohibits JIT compilation entirely, this is a non-starter for fully native AOT deployments.
+- **Migrations are friction, not value.** On a server you run migrations against a shared database with a known lifecycle. On a mobile device, the database ships inside the app or is created on first launch. EF Core's migration pipeline (`Add-Migration`, `Update-Database`, `__EFMigrationsHistory`) adds complexity with no real benefit — there is no DBA, no staging environment, no rollback plan. A schema-free document store eliminates migrations entirely.
+- **Heavy dependency graph.** EF Core pulls in `Microsoft.EntityFrameworkCore`, its SQLite provider, design-time packages, and their transitive dependencies. This increases app bundle size — a real concern when app stores enforce download size limits and users expect fast installs.
+- **Relational overhead for non-relational data.** Mobile apps typically store user preferences, cached API responses, offline data queues, and local state. This data is naturally document-shaped (nested objects, variable structure). Forcing it into normalized tables with foreign keys and JOINs adds accidental complexity.
+
+### Why this library fits
+
+| Concern | EF Core | Shiny.SqliteDocumentDb |
+|---|---|---|
+| **AOT / trimming** | Reflection-heavy; no AOT support | Every API has a `JsonTypeInfo<T>` overload; zero reflection required |
+| **Migrations** | Required for every schema change | Not needed — schema-free JSON storage |
+| **Nested objects** | Normalized tables, foreign keys, JOINs | Single document, single write, single read |
+| **App bundle size** | Large dependency tree | Single dependency on `Microsoft.Data.Sqlite` |
+| **Startup time** | DbContext model building, migration checks | Open connection and go |
+| **Offline / sync patterns** | Complex change tracking | Store and retrieve document snapshots directly |
+
+### AOT and trimming on mobile platforms
+
+Ahead-of-Time compilation is not optional on Apple platforms — iOS, iPadOS, tvOS, and Mac Catalyst all prohibit JIT at the OS level. Android does not prohibit JIT, but AOT deployment (`PublishAot` or `AndroidEnableProfiledAot`) delivers measurably faster startup and lower memory usage, both of which directly affect user experience.
+
+The .NET trimmer removes unreferenced code to shrink the app binary. Libraries that depend on reflection break under trimming because the trimmer cannot statically determine which types and members are accessed at runtime. This forces developers to either disable trimming (larger binaries) or maintain complex trimmer XML files.
+
+This library avoids both problems:
+
+- **Source-generated JSON serialization.** The `JsonSerializerContext` pattern generates serialization code at compile time. The trimmer can see every type that will be serialized, and the AOT compiler can compile every code path ahead of time.
+- **No runtime expression compilation.** LINQ expressions are translated to SQL strings by a visitor — no `Expression.Compile()`, no `Reflection.Emit`, no dynamic delegates.
+- **No model building.** There is no equivalent of EF Core's `OnModelCreating` that discovers entity types and relationships through reflection at startup.
+
+If you are building a .NET MAUI app and need local data persistence, this library gives you a queryable document store that works under full AOT and trimming without compromise.
+
 ## Benchmarks
 
 Measured with [BenchmarkDotNet](https://benchmarkdotnet.org/) v0.14.0 on Apple M2, .NET 10.0.3, macOS. Full source in [`benchmarks/`](benchmarks/).
