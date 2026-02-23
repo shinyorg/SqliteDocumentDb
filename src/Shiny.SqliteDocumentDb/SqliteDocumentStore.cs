@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -129,6 +130,45 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
+    async Task<bool> SetPropertyCoreAsync(string id, string typeName, string jsonPath, object? value, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow.ToString("O");
+
+        await using var cmd = this.connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE documents
+            SET Data = json_set(Data, @path, json(@value)), UpdatedAt = @now
+            WHERE Id = @id AND TypeName = @typeName;
+            """;
+        cmd.Parameters.AddWithValue("@path", "$." + jsonPath);
+        cmd.Parameters.AddWithValue("@value", ToJsonLiteral(value));
+        cmd.Parameters.AddWithValue("@now", now);
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@typeName", typeName);
+
+        var rows = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        return rows > 0;
+    }
+
+    async Task<bool> RemovePropertyCoreAsync(string id, string typeName, string jsonPath, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow.ToString("O");
+
+        await using var cmd = this.connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE documents
+            SET Data = json_remove(Data, @path), UpdatedAt = @now
+            WHERE Id = @id AND TypeName = @typeName;
+            """;
+        cmd.Parameters.AddWithValue("@path", "$." + jsonPath);
+        cmd.Parameters.AddWithValue("@now", now);
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@typeName", typeName);
+
+        var rows = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        return rows > 0;
+    }
+
     [RequiresUnreferencedCode(ReflectionMessage)]
     [RequiresDynamicCode(ReflectionMessage)]
     public Task<string> Set<T>(T document, CancellationToken cancellationToken = default) where T : class
@@ -200,6 +240,48 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             var json = JsonSerializer.Serialize(patch, jsonTypeInfo);
             await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
+    }
+
+    [RequiresUnreferencedCode(ReflectionMessage)]
+    [RequiresDynamicCode(ReflectionMessage)]
+    public Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, CancellationToken cancellationToken = default) where T : class
+    {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.SetProperty(id, property, value, typeInfo, cancellationToken);
+
+        var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions);
+        return this.ExecuteAsync(
+            () => this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken),
+            cancellationToken);
+    }
+
+    public Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    {
+        var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, jsonTypeInfo);
+        return this.ExecuteAsync(
+            () => this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken),
+            cancellationToken);
+    }
+
+    [RequiresUnreferencedCode(ReflectionMessage)]
+    [RequiresDynamicCode(ReflectionMessage)]
+    public Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, CancellationToken cancellationToken = default) where T : class
+    {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.RemoveProperty(id, property, typeInfo, cancellationToken);
+
+        var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions);
+        return this.ExecuteAsync(
+            () => this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken),
+            cancellationToken);
+    }
+
+    public Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    {
+        var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, jsonTypeInfo);
+        return this.ExecuteAsync(
+            () => this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken),
+            cancellationToken);
     }
 
     [RequiresUnreferencedCode(ReflectionMessage)]
@@ -689,6 +771,17 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         }
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Only serializes System.String which has a built-in converter.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Only serializes System.String which has a built-in converter.")]
+    static string ToJsonLiteral(object? value) => value switch
+    {
+        null => "null",
+        bool b => b ? "true" : "false",
+        string s => JsonSerializer.Serialize(s),
+        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+        _ => value.ToString() ?? "null"
+    };
+
     static string StripNullProperties(string json)
     {
         var node = JsonNode.Parse(json);
@@ -794,6 +887,24 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
+        async Task<bool> SetPropertyCoreAsync(string id, string typeName, string jsonPath, object? value, CancellationToken ct)
+        {
+            var now = DateTimeOffset.UtcNow.ToString("O");
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = """
+                UPDATE documents
+                SET Data = json_set(Data, @path, json(@value)), UpdatedAt = @now
+                WHERE Id = @id AND TypeName = @typeName;
+                """;
+            cmd.Parameters.AddWithValue("@path", "$." + jsonPath);
+            cmd.Parameters.AddWithValue("@value", ToJsonLiteral(value));
+            cmd.Parameters.AddWithValue("@now", now);
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@typeName", typeName);
+            var rows = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            return rows > 0;
+        }
+
         [RequiresUnreferencedCode(ReflectionMessage)]
         [RequiresDynamicCode(ReflectionMessage)]
         public async Task<string> Set<T>(T document, CancellationToken cancellationToken = default) where T : class
@@ -853,6 +964,57 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         {
             var json = JsonSerializer.Serialize(patch, jsonTypeInfo);
             await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+        }
+
+        [RequiresUnreferencedCode(ReflectionMessage)]
+        [RequiresDynamicCode(ReflectionMessage)]
+        public async Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, CancellationToken cancellationToken = default) where T : class
+        {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+                return await this.SetProperty(id, property, value, typeInfo, cancellationToken).ConfigureAwait(false);
+
+            var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions);
+            return await this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        {
+            var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, jsonTypeInfo);
+            return await this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken).ConfigureAwait(false);
+        }
+
+        async Task<bool> RemovePropertyCoreAsync(string id, string typeName, string jsonPath, CancellationToken ct)
+        {
+            var now = DateTimeOffset.UtcNow.ToString("O");
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = """
+                UPDATE documents
+                SET Data = json_remove(Data, @path), UpdatedAt = @now
+                WHERE Id = @id AND TypeName = @typeName;
+                """;
+            cmd.Parameters.AddWithValue("@path", "$." + jsonPath);
+            cmd.Parameters.AddWithValue("@now", now);
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@typeName", typeName);
+            var rows = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            return rows > 0;
+        }
+
+        [RequiresUnreferencedCode(ReflectionMessage)]
+        [RequiresDynamicCode(ReflectionMessage)]
+        public async Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, CancellationToken cancellationToken = default) where T : class
+        {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+                return await this.RemoveProperty(id, property, typeInfo, cancellationToken).ConfigureAwait(false);
+
+            var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions);
+            return await this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        {
+            var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, jsonTypeInfo);
+            return await this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken).ConfigureAwait(false);
         }
 
         [RequiresUnreferencedCode(ReflectionMessage)]

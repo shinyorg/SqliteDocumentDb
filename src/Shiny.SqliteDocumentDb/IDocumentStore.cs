@@ -48,6 +48,34 @@ public interface IDocumentStore
     Task Upsert<T>(string id, T patch, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
+    /// Updates a single property on an existing document using json_set.
+    /// </summary>
+    /// <returns>True if a document was updated, false if not found.</returns>
+    [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Updates a single property on an existing document using json_set (AOT-safe).
+    /// </summary>
+    /// <returns>True if a document was updated, false if not found.</returns>
+    Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Removes a single property from an existing document using json_remove.
+    /// </summary>
+    /// <returns>True if a document was updated, false if not found.</returns>
+    [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Removes a single property from an existing document using json_remove (AOT-safe).
+    /// </summary>
+    /// <returns>True if a document was updated, false if not found.</returns>
+    Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
     /// Gets a document by ID.
     /// </summary>
     [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]

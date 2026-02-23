@@ -219,6 +219,138 @@ public class DocumentStoreTests : IDisposable
         var count = await this.store.Count<User>();
         Assert.Equal(0, count);
     }
+
+    [Fact]
+    public async Task SetProperty_UpdatesScalarField()
+    {
+        await this.store.Set("user-1", new User { Name = "Allan", Age = 30, Email = "allan@test.com" });
+
+        var updated = await this.store.SetProperty<User>("user-1", u => u.Age, 31);
+        Assert.True(updated);
+
+        var result = await this.store.Get<User>("user-1");
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Equal(31, result.Age);
+        Assert.Equal("allan@test.com", result.Email);
+    }
+
+    [Fact]
+    public async Task SetProperty_ReturnsFalse_WhenDocumentNotFound()
+    {
+        var updated = await this.store.SetProperty<User>("does-not-exist", u => u.Age, 31);
+        Assert.False(updated);
+    }
+
+    [Fact]
+    public async Task SetProperty_SetsNullValue()
+    {
+        await this.store.Set("user-1", new User { Name = "Allan", Age = 30, Email = "allan@test.com" });
+
+        var updated = await this.store.SetProperty<User>("user-1", u => u.Email, null);
+        Assert.True(updated);
+
+        var result = await this.store.Get<User>("user-1");
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Null(result.Email);
+    }
+
+    [Fact]
+    public async Task SetProperty_AotOverload()
+    {
+        var typeInfo = Fixtures.TestJsonContext.Default.User;
+        await this.store.Set("user-1", new User { Name = "Allan", Age = 30, Email = "allan@test.com" }, typeInfo);
+
+        var updated = await this.store.SetProperty("user-1", (User u) => u.Age, 31, typeInfo);
+        Assert.True(updated);
+
+        var result = await this.store.Get("user-1", typeInfo);
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Equal(31, result.Age);
+        Assert.Equal("allan@test.com", result.Email);
+    }
+
+    [Fact]
+    public async Task SetProperty_NestedPath()
+    {
+        var order = new Order
+        {
+            CustomerName = "Allan",
+            Status = "Pending",
+            ShippingAddress = new Address { Street = "123 Main", City = "Springfield", State = "IL", Zip = "62701" }
+        };
+        await this.store.Set("order-1", order);
+
+        var updated = await this.store.SetProperty<Order>("order-1", o => o.ShippingAddress.City, "Shelbyville");
+        Assert.True(updated);
+
+        var result = await this.store.Get<Order>("order-1");
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.CustomerName);
+        Assert.Equal("Shelbyville", result.ShippingAddress.City);
+        Assert.Equal("123 Main", result.ShippingAddress.Street);
+    }
+
+    [Fact]
+    public async Task RemoveProperty_RemovesField()
+    {
+        await this.store.Set("user-1", new User { Name = "Allan", Age = 30, Email = "allan@test.com" });
+
+        var updated = await this.store.RemoveProperty<User>("user-1", u => u.Email);
+        Assert.True(updated);
+
+        var result = await this.store.Get<User>("user-1");
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Equal(30, result.Age);
+        Assert.Null(result.Email);
+    }
+
+    [Fact]
+    public async Task RemoveProperty_ReturnsFalse_WhenDocumentNotFound()
+    {
+        var updated = await this.store.RemoveProperty<User>("does-not-exist", u => u.Email);
+        Assert.False(updated);
+    }
+
+    [Fact]
+    public async Task RemoveProperty_AotOverload()
+    {
+        var typeInfo = Fixtures.TestJsonContext.Default.User;
+        await this.store.Set("user-1", new User { Name = "Allan", Age = 30, Email = "allan@test.com" }, typeInfo);
+
+        var updated = await this.store.RemoveProperty("user-1", (User u) => u.Email, typeInfo);
+        Assert.True(updated);
+
+        var result = await this.store.Get("user-1", typeInfo);
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Equal(30, result.Age);
+        Assert.Null(result.Email);
+    }
+
+    [Fact]
+    public async Task RemoveProperty_NestedPath()
+    {
+        var order = new Order
+        {
+            CustomerName = "Allan",
+            Status = "Pending",
+            ShippingAddress = new Address { Street = "123 Main", City = "Springfield", State = "IL", Zip = "62701" }
+        };
+        await this.store.Set("order-1", order);
+
+        var updated = await this.store.RemoveProperty<Order>("order-1", o => o.ShippingAddress.City);
+        Assert.True(updated);
+
+        var result = await this.store.Get<Order>("order-1");
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.CustomerName);
+        Assert.Equal("", result.ShippingAddress.City); // default value since field was removed
+        Assert.Equal("123 Main", result.ShippingAddress.Street);
+    }
 }
 
 public class DocumentStoreResolverTests : IDisposable

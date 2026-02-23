@@ -14,6 +14,7 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 - **Full AOT/trimming support** — every API has a `JsonTypeInfo<T>` overload for source-generated JSON serialization. No reflection required. Configure a `JsonSerializerContext` once and all overloads auto-resolve type info — no per-call `JsonTypeInfo<T>` needed. Set `UseReflectionFallback = false` to catch missing type registrations with clear exceptions instead of opaque AOT failures.
 - **10-30x faster nested inserts** vs sqlite-net — one write per document vs multiple table inserts with foreign keys. 2-10x faster reads on nested data.
 - **JSON Merge Patch (Upsert)** — `store.Upsert("id", patch)` deep-merges a partial object into an existing document using SQLite's `json_patch()` (RFC 7396). Only patched fields are overwritten; unset nullable fields are preserved.
+- **Surgical field updates** — `store.SetProperty<User>("id", u => u.Age, 31)` updates a single JSON field via `json_set()` without deserializing the document. `store.RemoveProperty<User>("id", u => u.Email)` strips a field via `json_remove()`. Both support nested paths like `o => o.ShippingAddress.City`.
 - **Transactions** — `store.RunInTransaction(async tx => { ... })` with automatic commit/rollback.
 
 ## Comparison with alternatives
@@ -330,6 +331,8 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 | `store.Get<User>("id", ctx.User)` | `store.Get<User>("id")` |
 | `store.GetAll<User>(ctx.User)` | `store.GetAll<User>()` |
 | `store.Upsert("id", patch, ctx.User)` | `store.Upsert("id", patch)` |
+| `store.SetProperty("id", (User u) => u.Age, 31, ctx.User)` | `store.SetProperty<User>("id", u => u.Age, 31)` |
+| `store.RemoveProperty("id", (User u) => u.Email, ctx.User)` | `store.RemoveProperty<User>("id", u => u.Email)` |
 | `store.Query<User>(sql, ctx.User, parms)` | `store.Query<User>(sql, parms)` |
 | `store.GetAllStream<User>(ctx.User)` | `store.GetAllStream<User>()` |
 | `store.QueryStream<User>(sql, ctx.User, parms)` | `store.QueryStream<User>(sql, parms)` |
@@ -405,6 +408,76 @@ var user = await store.Get<User>("user-1", ctx.User);
 - **Null properties are excluded** from the patch automatically. In C#, unset nullable properties (e.g. `string? Email`) serialize as `null`, which would remove the key under RFC 7396. The library strips these so that unset fields are preserved rather than deleted.
 
 > **Tip:** For true partial updates, use nullable properties in your patch type so that unset fields are `null` and excluded from the merge. Non-nullable properties with default initializers (e.g. `string Name = ""`) will always be included in the patch.
+
+### Update a single property (SetProperty)
+
+`SetProperty` updates a single scalar field in-place using SQLite's `json_set()` — no deserialization, no full document replacement. Returns `true` if the document was found and updated, `false` if not found.
+
+```csharp
+// Update a scalar field
+await store.SetProperty<User>("user-1", u => u.Age, 31, ctx.User);
+
+// Update a string field
+await store.SetProperty<User>("user-1", u => u.Email, "newemail@test.com", ctx.User);
+
+// Set a field to null
+await store.SetProperty<User>("user-1", u => u.Email, null, ctx.User);
+
+// Nested property — update a city within a shipping address
+await store.SetProperty<Order>("order-1", o => o.ShippingAddress.City, "Portland", ctx.Order);
+
+// Check if the document existed
+bool updated = await store.SetProperty<User>("user-1", u => u.Age, 31, ctx.User);
+if (!updated)
+    Console.WriteLine("Document not found");
+```
+
+**How it works:** The expression `u => u.Age` is resolved to the JSON path `$.age` (respecting `[JsonPropertyName]` attributes and naming policies). The SQL executed is:
+
+```sql
+UPDATE documents
+SET Data = json_set(Data, '$.age', json('31')), UpdatedAt = @now
+WHERE Id = @id AND TypeName = @typeName;
+```
+
+**Supported value types:** `SetProperty` is designed for scalar values — `string`, `int`, `long`, `double`, `float`, `decimal`, `bool`, and `null`. It does not support setting collection or complex object values. To replace a nested object or array, use `Set` (full replacement) or `Upsert` (merge patch).
+
+### Remove a single property (RemoveProperty)
+
+`RemoveProperty` strips a field from the stored JSON using SQLite's `json_remove()`. Returns `true` if the document was found and updated, `false` if not found. When the document is later deserialized, the removed field will have its C# default value.
+
+```csharp
+// Remove a nullable field
+await store.RemoveProperty<User>("user-1", u => u.Email, ctx.User);
+
+// Remove a nested property
+await store.RemoveProperty<Order>("order-1", o => o.ShippingAddress.City, ctx.Order);
+
+// Remove a collection property (removes the entire array from the JSON)
+await store.RemoveProperty<Order>("order-1", o => o.Tags, ctx.Order);
+
+// Check if the document existed
+bool updated = await store.RemoveProperty<User>("user-1", u => u.Email, ctx.User);
+```
+
+**How it works:** The SQL executed is:
+
+```sql
+UPDATE documents
+SET Data = json_remove(Data, '$.email'), UpdatedAt = @now
+WHERE Id = @id AND TypeName = @typeName;
+```
+
+Unlike `SetProperty`, `RemoveProperty` works on any property type — scalar, nested object, or collection — because it simply removes the key from the JSON regardless of the value's shape.
+
+### SetProperty vs RemoveProperty vs Upsert vs Set
+
+| Operation | Use when | Scope | Collections |
+|---|---|---|---|
+| `SetProperty` | Changing one scalar field | Single field, in-place `json_set` | Scalar values only |
+| `RemoveProperty` | Stripping a field from the document | Single field, in-place `json_remove` | Works on any property type |
+| `Upsert` | Patching multiple fields at once | Deep merge via `json_patch` | Replaces arrays entirely (RFC 7396) |
+| `Set` | Replacing the entire document | Full replacement | Full control |
 
 ### Get a document by ID
 
