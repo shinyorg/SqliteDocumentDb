@@ -1,5 +1,6 @@
 #pragma warning disable IL2026, IL3050 // Reflection-based serialization in tests is fine
 
+using System.Text.Json;
 using Shiny.SqliteDocumentDb.Tests.Fixtures;
 using Xunit;
 
@@ -217,5 +218,115 @@ public class DocumentStoreTests : IDisposable
 
         var count = await this.store.Count<User>();
         Assert.Equal(0, count);
+    }
+}
+
+public class DocumentStoreResolverTests : IDisposable
+{
+    readonly SqliteDocumentStore store;
+
+    public DocumentStoreResolverTests()
+    {
+        var ctx = new TestJsonContext(new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+        this.store = new SqliteDocumentStore(new DocumentStoreOptions
+        {
+            ConnectionString = "Data Source=:memory:",
+            JsonSerializerOptions = ctx.Options
+        });
+    }
+
+    public void Dispose() => this.store.Dispose();
+
+    [Fact]
+    public async Task Set_WithResolver_UsesTypeInfo()
+    {
+        var id = await this.store.Set(new User { Name = "Allan", Age = 30, Email = "allan@test.com" });
+
+        var result = await this.store.Get<User>(id);
+
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Equal(30, result.Age);
+        Assert.Equal("allan@test.com", result.Email);
+    }
+
+    [Fact]
+    public async Task Upsert_WithResolver_UsesTypeInfo()
+    {
+        await this.store.Set("user-1", new User { Name = "Allan", Age = 30, Email = "allan@test.com" });
+
+        await this.store.Upsert("user-1", new User { Name = "Allan", Age = 31 });
+
+        var result = await this.store.Get<User>("user-1");
+
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Equal(31, result.Age);
+        Assert.Equal("allan@test.com", result.Email);
+    }
+
+    [Fact]
+    public async Task GetAll_WithResolver_UsesTypeInfo()
+    {
+        await this.store.Set("u1", new User { Name = "Alice" });
+        await this.store.Set("u2", new User { Name = "Bob" });
+
+        var results = await this.store.GetAll<User>();
+
+        Assert.Equal(2, results.Count);
+    }
+
+    [Fact]
+    public async Task Query_WithResolver_UsesTypeInfo()
+    {
+        await this.store.Set("u1", new User { Name = "Alice", Age = 25 });
+        await this.store.Set("u2", new User { Name = "Bob", Age = 35 });
+
+        var results = await this.store.Query<User>(
+            "json_extract(Data, '$.age') > @minAge",
+            new { minAge = 30 });
+
+        Assert.Single(results);
+        Assert.Equal("Bob", results[0].Name);
+    }
+
+    [Fact]
+    public async Task NoReflectionFallback_Throws_WhenTypeNotRegistered()
+    {
+        using var strict = new SqliteDocumentStore(new DocumentStoreOptions
+        {
+            ConnectionString = "Data Source=:memory:",
+            UseReflectionFallback = false
+        });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => strict.Set(new User { Name = "Allan" }));
+
+        Assert.Contains("No JsonTypeInfo registered", ex.Message);
+        Assert.Contains("User", ex.Message);
+    }
+
+    [Fact]
+    public async Task NoReflectionFallback_WithResolver_Works()
+    {
+        var ctx = new TestJsonContext(new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+        using var strict = new SqliteDocumentStore(new DocumentStoreOptions
+        {
+            ConnectionString = "Data Source=:memory:",
+            JsonSerializerOptions = ctx.Options,
+            UseReflectionFallback = false
+        });
+
+        var id = await strict.Set(new User { Name = "Allan", Age = 30 });
+        var result = await strict.Get<User>(id);
+
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
     }
 }

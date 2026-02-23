@@ -133,6 +133,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
     [RequiresDynamicCode(ReflectionMessage)]
     public Task<string> Set<T>(T document, CancellationToken cancellationToken = default) where T : class
     {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.Set(document, typeInfo, cancellationToken);
+
         return this.ExecuteAsync(async () =>
         {
             var id = Guid.NewGuid().ToString("N");
@@ -157,6 +160,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
     [RequiresDynamicCode(ReflectionMessage)]
     public Task Set<T>(string id, T document, CancellationToken cancellationToken = default) where T : class
     {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.Set(id, document, typeInfo, cancellationToken);
+
         return this.ExecuteAsync(async () =>
         {
             var json = JsonSerializer.Serialize(document, this.jsonOptions);
@@ -177,6 +183,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
     [RequiresDynamicCode(ReflectionMessage)]
     public Task Upsert<T>(string id, T patch, CancellationToken cancellationToken = default) where T : class
     {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.Upsert(id, patch, typeInfo, cancellationToken);
+
         return this.ExecuteAsync(async () =>
         {
             var json = JsonSerializer.Serialize(patch, this.jsonOptions);
@@ -197,6 +206,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
     [RequiresDynamicCode(ReflectionMessage)]
     public Task<T?> Get<T>(string id, CancellationToken cancellationToken = default) where T : class
     {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.Get(id, typeInfo, cancellationToken);
+
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
@@ -231,6 +243,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
     [RequiresDynamicCode(ReflectionMessage)]
     public Task<IReadOnlyList<T>> GetAll<T>(CancellationToken cancellationToken = default) where T : class
     {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.GetAll(typeInfo, cancellationToken);
+
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
@@ -276,6 +291,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
     [RequiresDynamicCode(ReflectionMessage)]
     public Task<IReadOnlyList<T>> Query<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class
     {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.Query(whereClause, typeInfo, parameters, cancellationToken);
+
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
@@ -330,6 +348,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
     [RequiresDynamicCode(ReflectionMessage)]
     public IAsyncEnumerable<T> GetAllStream<T>(CancellationToken cancellationToken = default) where T : class
     {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.GetAllStream(typeInfo, cancellationToken);
+
         var typeName = this.ResolveTypeName<T>();
         return this.ReadStreamAsync<T>(
             cmd =>
@@ -378,6 +399,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
     [RequiresDynamicCode(ReflectionMessage)]
     public IAsyncEnumerable<T> QueryStream<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class
     {
+        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            return this.QueryStream(whereClause, typeInfo, parameters, cancellationToken);
+
         var typeName = this.ResolveTypeName<T>();
         return this.ReadStreamAsync<T>(
             cmd =>
@@ -625,6 +649,23 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         }, cancellationToken);
     }
 
+    static bool TryGetTypeInfo<T>(JsonSerializerOptions options, bool useReflectionFallback, [NotNullWhen(true)] out JsonTypeInfo<T>? typeInfo)
+    {
+        if (options.TryGetTypeInfo(typeof(T), out var info) && info is JsonTypeInfo<T> typed)
+        {
+            typeInfo = typed;
+            return true;
+        }
+
+        if (!useReflectionFallback)
+            throw new InvalidOperationException(
+                $"No JsonTypeInfo registered for type '{typeof(T).FullName}'. " +
+                $"Register it in your JsonSerializerContext or pass a JsonTypeInfo<{typeof(T).Name}> explicitly.");
+
+        typeInfo = null;
+        return false;
+    }
+
     [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Parameter binding via reflection is intentional; dictionary overload available for AOT.")]
     static void BindParameters(SqliteCommand cmd, object? parameters)
     {
@@ -757,6 +798,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         [RequiresDynamicCode(ReflectionMessage)]
         public async Task<string> Set<T>(T document, CancellationToken cancellationToken = default) where T : class
         {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+                return await this.Set(document, typeInfo, cancellationToken).ConfigureAwait(false);
+
             var id = Guid.NewGuid().ToString("N");
             var json = JsonSerializer.Serialize(document, this.jsonOptions);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
@@ -775,6 +819,12 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         [RequiresDynamicCode(ReflectionMessage)]
         public async Task Set<T>(string id, T document, CancellationToken cancellationToken = default) where T : class
         {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            {
+                await this.Set(id, document, typeInfo, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
             var json = JsonSerializer.Serialize(document, this.jsonOptions);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
@@ -789,6 +839,12 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         [RequiresDynamicCode(ReflectionMessage)]
         public async Task Upsert<T>(string id, T patch, CancellationToken cancellationToken = default) where T : class
         {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            {
+                await this.Upsert(id, patch, typeInfo, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
             var json = JsonSerializer.Serialize(patch, this.jsonOptions);
             await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
@@ -803,6 +859,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         [RequiresDynamicCode(ReflectionMessage)]
         public async Task<T?> Get<T>(string id, CancellationToken cancellationToken = default) where T : class
         {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+                return await this.Get(id, typeInfo, cancellationToken).ConfigureAwait(false);
+
             await using var cmd = this.CreateCommand();
             cmd.CommandText = "SELECT Data FROM documents WHERE Id = @id AND TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@id", id);
@@ -831,6 +890,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         [RequiresDynamicCode(ReflectionMessage)]
         public async Task<IReadOnlyList<T>> GetAll<T>(CancellationToken cancellationToken = default) where T : class
         {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+                return await this.GetAll(typeInfo, cancellationToken).ConfigureAwait(false);
+
             await using var cmd = this.CreateCommand();
             cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
@@ -864,6 +926,9 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         [RequiresDynamicCode(ReflectionMessage)]
         public async Task<IReadOnlyList<T>> Query<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class
         {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+                return await this.Query(whereClause, typeInfo, parameters, cancellationToken).ConfigureAwait(false);
+
             await using var cmd = this.CreateCommand();
             cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
@@ -884,6 +949,13 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         [RequiresDynamicCode(ReflectionMessage)]
         public async IAsyncEnumerable<T> GetAllStream<T>([EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
         {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            {
+                await foreach (var item in this.GetAllStream(typeInfo, cancellationToken).ConfigureAwait(false))
+                    yield return item;
+                yield break;
+            }
+
             await using var cmd = this.CreateCommand();
             cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
@@ -926,6 +998,13 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         [RequiresDynamicCode(ReflectionMessage)]
         public async IAsyncEnumerable<T> QueryStream<T>(string whereClause, object? parameters = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
         {
+            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
+            {
+                await foreach (var item in this.QueryStream(whereClause, typeInfo, parameters, cancellationToken).ConfigureAwait(false))
+                    yield return item;
+                yield break;
+            }
+
             await using var cmd = this.CreateCommand();
             cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());

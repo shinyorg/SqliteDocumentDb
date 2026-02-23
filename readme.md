@@ -11,7 +11,7 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 - **`IAsyncEnumerable<T>` streaming** — yield results one-at-a-time with `GetAllStream` and `QueryStream` instead of buffering into a list. Eliminates Gen1 GC pressure at scale with comparable throughput.
 - **Expression-based JSON indexes** — `store.CreateIndexAsync<User>(u => u.Name, ctx.User)` creates a partial `json_extract` index. Up to **30x faster** queries on indexed properties.
 - **SQL-level projections** — project into DTOs with `json_object` at the database level. No full document deserialization needed.
-- **Full AOT/trimming support** — every API has a `JsonTypeInfo<T>` overload for source-generated JSON serialization. No reflection required.
+- **Full AOT/trimming support** — every API has a `JsonTypeInfo<T>` overload for source-generated JSON serialization. No reflection required. Configure a `JsonSerializerContext` once and all overloads auto-resolve type info — no per-call `JsonTypeInfo<T>` needed. Set `UseReflectionFallback = false` to catch missing type registrations with clear exceptions instead of opaque AOT failures.
 - **10-30x faster nested inserts** vs sqlite-net — one write per document vs multiple table inserts with foreign keys. 2-10x faster reads on nested data.
 - **JSON Merge Patch (Upsert)** — `store.Upsert("id", patch)` deep-merges a partial object into an existing document using SQLite's `json_patch()` (RFC 7396). Only patched fields are overwritten; unset nullable fields are preserved.
 - **Transactions** — `store.RunInTransaction(async tx => { ... })` with automatic commit/rollback.
@@ -220,6 +220,15 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 });
 ```
 
+### Options reference
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `ConnectionString` | `string` | (required) | SQLite connection string |
+| `TypeNameResolution` | `TypeNameResolution` | `ShortName` | How type names are stored — `ShortName` (e.g. `User`) or `FullName` (e.g. `MyApp.Models.User`) |
+| `JsonSerializerOptions` | `JsonSerializerOptions?` | `null` | JSON serialization settings. When a `JsonSerializerContext` is attached as the `TypeInfoResolver`, overloads without `JsonTypeInfo<T>` auto-resolve type info from the context |
+| `UseReflectionFallback` | `bool` | `true` | When `false`, throws `InvalidOperationException` if a type can't be resolved from the configured `TypeInfoResolver` instead of falling back to reflection. Recommended for AOT deployments |
+
 ### Dependency injection
 
 ```csharp
@@ -234,6 +243,18 @@ services.AddSqliteDocumentStore(opts =>
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
+});
+
+// AOT-safe — attach a JsonSerializerContext so all overloads auto-resolve type info
+var ctx = new AppJsonContext(new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+});
+services.AddSqliteDocumentStore(opts =>
+{
+    opts.ConnectionString = "Data Source=mydata.db";
+    opts.JsonSerializerOptions = ctx.Options;
+    opts.UseReflectionFallback = false; // throw instead of using reflection for unregistered types
 });
 ```
 
@@ -259,6 +280,75 @@ var ctx = new AppJsonContext(new JsonSerializerOptions
 ```
 
 Pass `ctx.Options` to `DocumentStoreOptions.JsonSerializerOptions` so that the expression visitor and serializer share the same configuration.
+
+### Using the resolver for cleaner API calls
+
+When a `JsonSerializerContext` is attached to `DocumentStoreOptions.JsonSerializerOptions`, the reflection-marked overloads (without `JsonTypeInfo<T>`) automatically resolve type info from the configured resolver. This means you can configure the context once and skip passing `JsonTypeInfo<T>` on every call — while retaining full AOT safety.
+
+#### Setup
+
+```csharp
+var ctx = new AppJsonContext(new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+});
+
+var store = new SqliteDocumentStore(new DocumentStoreOptions
+{
+    ConnectionString = "Data Source=mydata.db",
+    JsonSerializerOptions = ctx.Options,
+    UseReflectionFallback = false // recommended for AOT
+});
+```
+
+#### Before vs after
+
+| Without resolver (explicit `JsonTypeInfo<T>`) | With resolver (auto-resolved) |
+|---|---|
+| `store.Set(user, ctx.User)` | `store.Set(user)` |
+| `store.Set("id", user, ctx.User)` | `store.Set("id", user)` |
+| `store.Get<User>("id", ctx.User)` | `store.Get<User>("id")` |
+| `store.GetAll<User>(ctx.User)` | `store.GetAll<User>()` |
+| `store.Upsert("id", patch, ctx.User)` | `store.Upsert("id", patch)` |
+| `store.Query<User>(sql, ctx.User, parms)` | `store.Query<User>(sql, parms)` |
+| `store.GetAllStream<User>(ctx.User)` | `store.GetAllStream<User>()` |
+| `store.QueryStream<User>(sql, ctx.User, parms)` | `store.QueryStream<User>(sql, parms)` |
+
+#### Example
+
+```csharp
+// All of these are AOT-safe when ctx.Options is configured
+var id = await store.Set(new User { Name = "Alice", Age = 25 });
+var user = await store.Get<User>(id);
+var all = await store.GetAll<User>();
+await store.Upsert("user-1", new User { Name = "Alice", Age = 30 });
+
+var results = await store.Query<User>(
+    "json_extract(Data, '$.age') > @minAge",
+    new { minAge = 30 });
+
+await foreach (var u in store.GetAllStream<User>())
+    Console.WriteLine(u.Name);
+```
+
+#### How it works
+
+Each reflection-marked overload checks `JsonSerializerOptions.TryGetTypeInfo(typeof(T))` before falling back to reflection. If the resolver returns a `JsonTypeInfo<T>`, the call is delegated to the corresponding AOT overload internally. The `[RequiresUnreferencedCode]` / `[RequiresDynamicCode]` attributes remain on these methods since they can still use reflection when no resolver is configured.
+
+#### Reflection fallback behavior
+
+By default (`UseReflectionFallback = true`), if no `TypeInfoResolver` is configured or the type isn't registered in the context, these methods fall back to reflection-based serialization. Existing code without a `JsonSerializerContext` continues to work unchanged.
+
+**For AOT deployments, set `UseReflectionFallback = false`.** Reflection-based serialization produces hard-to-diagnose errors under trimming and AOT. With this flag disabled, you get a clear `InvalidOperationException` at the point of use:
+
+```
+InvalidOperationException: No JsonTypeInfo registered for type 'MyApp.UnregisteredType'.
+Register it in your JsonSerializerContext or pass a JsonTypeInfo<UnregisteredType> explicitly.
+```
+
+This tells you exactly which type is missing and what to do about it. Every type must either be registered in your `JsonSerializerContext` via `[JsonSerializable(typeof(T))]` or passed with an explicit `JsonTypeInfo<T>` parameter.
+
+> **Note:** Expression-based queries (`store.Query(u => u.Age > 30, ctx.User)`) and projections always require explicit `JsonTypeInfo<T>` because the LINQ expression visitor needs type metadata to resolve JSON property names. Auto-resolution applies to the 8 methods in the table above.
 
 ## Basic CRUD Operations
 
