@@ -301,6 +301,26 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 });
 ```
 
+#### Multiple JSON contexts
+
+If your types are spread across multiple `JsonSerializerContext` classes, use `TypeInfoResolverChain` to combine them. The chain is tried in order — the first context that knows about the requested type wins.
+
+```csharp
+var options = new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+};
+options.TypeInfoResolverChain.Add(UserJsonContext.Default);
+options.TypeInfoResolverChain.Add(OrderJsonContext.Default);
+
+var store = new SqliteDocumentStore(new DocumentStoreOptions
+{
+    ConnectionString = "Data Source=mydata.db",
+    JsonSerializerOptions = options,
+    UseReflectionFallback = false
+});
+```
+
 #### Before vs after
 
 | Without resolver (explicit `JsonTypeInfo<T>`) | With resolver (auto-resolved) |
