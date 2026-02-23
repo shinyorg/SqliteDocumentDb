@@ -1,5 +1,5 @@
 ﻿--------------
-Shiny Mediator
+Shiny SQLite Document Database
 --------------
 
 GitHub: https://github.com/shinyorg/sqlitedocumentdb
