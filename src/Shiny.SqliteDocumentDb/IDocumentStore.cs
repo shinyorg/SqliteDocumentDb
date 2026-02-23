@@ -34,6 +34,20 @@ public interface IDocumentStore
     Task Set<T>(string id, T document, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
+    /// Upserts a document using RFC 7396 JSON Merge Patch. If the document exists, the patch
+    /// is deep-merged into the existing JSON; if it doesn't exist, the patch is inserted as-is.
+    /// </summary>
+    [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    Task Upsert<T>(string id, T patch, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Upserts a document using RFC 7396 JSON Merge Patch (AOT-safe). If the document exists, the patch
+    /// is deep-merged into the existing JSON; if it doesn't exist, the patch is inserted as-is.
+    /// </summary>
+    Task Upsert<T>(string id, T patch, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
     /// Gets a document by ID.
     /// </summary>
     [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]

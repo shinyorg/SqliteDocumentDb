@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Data.Sqlite;
 using Shiny.SqliteDocumentDb.Internal;
@@ -107,6 +108,27 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
+    async Task UpsertMergeCoreAsync(string id, string typeName, string json, CancellationToken ct)
+    {
+        json = StripNullProperties(json);
+        var now = DateTimeOffset.UtcNow.ToString("O");
+
+        await using var cmd = this.connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO documents (Id, TypeName, Data, CreatedAt, UpdatedAt)
+            VALUES (@id, @typeName, @data, @now, @now)
+            ON CONFLICT(Id, TypeName) DO UPDATE SET
+                Data = json_patch(documents.Data, @data),
+                UpdatedAt = @now;
+            """;
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@typeName", typeName);
+        cmd.Parameters.AddWithValue("@data", json);
+        cmd.Parameters.AddWithValue("@now", now);
+
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
     [RequiresUnreferencedCode(ReflectionMessage)]
     [RequiresDynamicCode(ReflectionMessage)]
     public Task<string> Set<T>(T document, CancellationToken cancellationToken = default) where T : class
@@ -148,6 +170,26 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         {
             var json = JsonSerializer.Serialize(document, jsonTypeInfo);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    [RequiresUnreferencedCode(ReflectionMessage)]
+    [RequiresDynamicCode(ReflectionMessage)]
+    public Task Upsert<T>(string id, T patch, CancellationToken cancellationToken = default) where T : class
+    {
+        return this.ExecuteAsync(async () =>
+        {
+            var json = JsonSerializer.Serialize(patch, this.jsonOptions);
+            await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    public Task Upsert<T>(string id, T patch, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    {
+        return this.ExecuteAsync(async () =>
+        {
+            var json = JsonSerializer.Serialize(patch, jsonTypeInfo);
+            await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
@@ -606,6 +648,18 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         }
     }
 
+    static string StripNullProperties(string json)
+    {
+        var node = JsonNode.Parse(json);
+        if (node is not JsonObject obj)
+            return json;
+
+        foreach (var key in obj.Where(kv => kv.Value is null).Select(kv => kv.Key).ToList())
+            obj.Remove(key);
+
+        return obj.ToJsonString();
+    }
+
     static void BindDictionaryParameters(SqliteCommand cmd, Dictionary<string, object?> parameters)
     {
         foreach (var kvp in parameters)
@@ -680,6 +734,25 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
+        async Task UpsertMergeCoreAsync(string id, string typeName, string json, CancellationToken ct)
+        {
+            json = StripNullProperties(json);
+            var now = DateTimeOffset.UtcNow.ToString("O");
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO documents (Id, TypeName, Data, CreatedAt, UpdatedAt)
+                VALUES (@id, @typeName, @data, @now, @now)
+                ON CONFLICT(Id, TypeName) DO UPDATE SET
+                    Data = json_patch(documents.Data, @data),
+                    UpdatedAt = @now;
+                """;
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@typeName", typeName);
+            cmd.Parameters.AddWithValue("@data", json);
+            cmd.Parameters.AddWithValue("@now", now);
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+
         [RequiresUnreferencedCode(ReflectionMessage)]
         [RequiresDynamicCode(ReflectionMessage)]
         public async Task<string> Set<T>(T document, CancellationToken cancellationToken = default) where T : class
@@ -710,6 +783,20 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         {
             var json = JsonSerializer.Serialize(document, jsonTypeInfo);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+        }
+
+        [RequiresUnreferencedCode(ReflectionMessage)]
+        [RequiresDynamicCode(ReflectionMessage)]
+        public async Task Upsert<T>(string id, T patch, CancellationToken cancellationToken = default) where T : class
+        {
+            var json = JsonSerializer.Serialize(patch, this.jsonOptions);
+            await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task Upsert<T>(string id, T patch, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        {
+            var json = JsonSerializer.Serialize(patch, jsonTypeInfo);
+            await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
 
         [RequiresUnreferencedCode(ReflectionMessage)]

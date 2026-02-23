@@ -146,6 +146,51 @@ public class DocumentStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Upsert_InsertsNewDocument_WhenIdDoesNotExist()
+    {
+        await this.store.Upsert("user-1", new User { Name = "Allan", Age = 30 });
+
+        var result = await this.store.Get<User>("user-1");
+
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Equal(30, result.Age);
+    }
+
+    [Fact]
+    public async Task Upsert_MergesPatch_IntoExistingDocument()
+    {
+        await this.store.Set("user-1", new User { Name = "Allan", Age = 30, Email = "allan@test.com" });
+
+        // Patch name and age; Email is null so it is excluded from the patch and preserved
+        await this.store.Upsert("user-1", new User { Name = "Allan", Age = 31 });
+
+        var result = await this.store.Get<User>("user-1");
+
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Equal(31, result.Age);
+        Assert.Equal("allan@test.com", result.Email);
+    }
+
+    [Fact]
+    public async Task Upsert_AotOverload_MergesPatch()
+    {
+        var typeInfo = Fixtures.TestJsonContext.Default.User;
+        await this.store.Set("user-1", new User { Name = "Allan", Age = 30, Email = "allan@test.com" }, typeInfo);
+
+        // Patch name and age; Email is null so it is excluded from the patch and preserved
+        await this.store.Upsert("user-1", new User { Name = "Allan", Age = 31 }, typeInfo);
+
+        var result = await this.store.Get("user-1", typeInfo);
+
+        Assert.NotNull(result);
+        Assert.Equal("Allan", result.Name);
+        Assert.Equal(31, result.Age);
+        Assert.Equal("allan@test.com", result.Email);
+    }
+
+    [Fact]
     public async Task RunInTransaction_CommitsOnSuccess()
     {
         await this.store.RunInTransaction(async tx =>

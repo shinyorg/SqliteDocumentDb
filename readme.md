@@ -13,6 +13,7 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 - **SQL-level projections** — project into DTOs with `json_object` at the database level. No full document deserialization needed.
 - **Full AOT/trimming support** — every API has a `JsonTypeInfo<T>` overload for source-generated JSON serialization. No reflection required.
 - **10-30x faster nested inserts** vs sqlite-net — one write per document vs multiple table inserts with foreign keys. 2-10x faster reads on nested data.
+- **JSON Merge Patch (Upsert)** — `store.Upsert("id", patch)` deep-merges a partial object into an existing document using SQLite's `json_patch()` (RFC 7396). Only patched fields are overwritten; unset nullable fields are preserved.
 - **Transactions** — `store.RunInTransaction(async tx => { ... })` with automatic commit/rollback.
 
 ## Comparison with alternatives
@@ -272,6 +273,28 @@ var id = await store.Set(new User { Name = "Alice", Age = 25 }, ctx.User);
 ```csharp
 await store.Set("user-1", new User { Name = "Alice", Age = 25 }, ctx.User);
 ```
+
+### Upsert with JSON Merge Patch
+
+`Upsert` uses SQLite's `json_patch()` (RFC 7396 JSON Merge Patch) to deep-merge a partial patch into an existing document. If the document doesn't exist, it is inserted as-is. Unlike `Set`, which replaces the entire document, `Upsert` only overwrites the fields present in the patch.
+
+```csharp
+// Insert a full document
+await store.Set("user-1", new User { Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
+
+// Merge patch — only update Name and Age, preserve Email
+await store.Upsert("user-1", new User { Name = "Alice", Age = 30 }, ctx.User);
+
+var user = await store.Get<User>("user-1", ctx.User);
+// user.Name == "Alice", user.Age == 30, user.Email == "alice@test.com" (preserved)
+```
+
+**How it works:**
+- On **insert** (new ID): the patch is stored as the full document.
+- On **conflict** (existing ID): `json_patch(existing, patch)` deep-merges the patch into the stored JSON. Objects are recursively merged; scalars and arrays are replaced.
+- **Null properties are excluded** from the patch automatically. In C#, unset nullable properties (e.g. `string? Email`) serialize as `null`, which would remove the key under RFC 7396. The library strips these so that unset fields are preserved rather than deleted.
+
+> **Tip:** For true partial updates, use nullable properties in your patch type so that unset fields are `null` and excluded from the merge. Non-nullable properties with default initializers (e.g. `string Name = ""`) will always be included in the patch.
 
 ### Get a document by ID
 
