@@ -9,14 +9,15 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 ## Features
 
 - **Zero schema, zero migrations** — store entire object graphs (nested objects, child collections) as JSON documents. No `CREATE TABLE`, no `ALTER TABLE`, no JOINs.
-- **LINQ expression queries** — write `o => o.ShippingAddress.City == "Portland"` and it translates to `json_extract` SQL automatically. Supports nested properties, `Any()`, `Count()`, string methods, null checks, and captured variables.
-- **`IAsyncEnumerable<T>` streaming** — yield results one-at-a-time with `GetAllStream` and `QueryStream` instead of buffering into a list. Eliminates Gen1 GC pressure at scale with comparable throughput.
+- **Fluent query builder** — `store.Query<User>().Where(u => u.Age > 30).OrderBy(u => u.Name).Paginate(0, 20).ToList()` with full LINQ expression support for nested properties, `Any()`, `Count()`, string methods, null checks, and captured variables.
+- **`IAsyncEnumerable<T>` streaming** — yield results one-at-a-time with `.ToAsyncEnumerable()` instead of buffering into a list. Eliminates Gen1 GC pressure at scale with comparable throughput.
 - **Expression-based JSON indexes** — `store.CreateIndexAsync<User>(u => u.Name, ctx.User)` creates a partial `json_extract` index. Up to **30x faster** queries on indexed properties.
-- **SQL-level projections** — project into DTOs with `json_object` at the database level. No full document deserialization needed.
-- **Full AOT/trimming support** — every API has a `JsonTypeInfo<T>` overload for source-generated JSON serialization. No reflection required. Configure a `JsonSerializerContext` once and all overloads auto-resolve type info — no per-call `JsonTypeInfo<T>` needed. Set `UseReflectionFallback = false` to catch missing type registrations with clear exceptions instead of opaque AOT failures.
+- **SQL-level projections** — project into DTOs with `json_object` at the database level via `.Select()`. No full document deserialization needed.
+- **Full AOT/trimming support** — every API has an optional `JsonTypeInfo<T>` parameter for source-generated JSON serialization. No reflection required. Configure a `JsonSerializerContext` once and all methods auto-resolve type info — no per-call `JsonTypeInfo<T>` needed. Set `UseReflectionFallback = false` to catch missing type registrations with clear exceptions instead of opaque AOT failures.
 - **10-30x faster nested inserts** vs sqlite-net — one write per document vs multiple table inserts with foreign keys. 2-10x faster reads on nested data.
 - **JSON Merge Patch (Upsert)** — `store.Upsert("id", patch)` deep-merges a partial object into an existing document using SQLite's `json_patch()` (RFC 7396). Only patched fields are overwritten; unset nullable fields are preserved.
 - **Surgical field updates** — `store.SetProperty<User>("id", u => u.Age, 31)` updates a single JSON field via `json_set()` without deserializing the document. `store.RemoveProperty<User>("id", u => u.Email)` strips a field via `json_remove()`. Both support nested paths like `o => o.ShippingAddress.City`.
+- **Pagination** — `store.Query<User>().OrderBy(u => u.Name).Paginate(0, 20).ToList()` translates to SQL `LIMIT`/`OFFSET`.
 - **Transactions** — `store.RunInTransaction(async tx => { ... })` with automatic commit/rollback.
 
 ## Comparison with alternatives
@@ -25,10 +26,10 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 |---|---|---|---|
 | **Schema management** | Zero — just store objects | You write every `CREATE TABLE`, `ALTER TABLE`, migration | Auto-creates flat tables from POCOs |
 | **Nested objects & child collections** | Stored and queried as a single JSON document | Must design normalized tables, write JOINs, manage foreign keys | No support — flat columns only, child collections require separate tables + manual joins |
-| **LINQ queries on nested data** | `store.Query(o => o.Lines.Any(l => l.Price > 10))` | Hand-written `json_extract` SQL | Not possible on nested data |
-| **AOT / trimming** | First-class `JsonTypeInfo<T>` overloads on every API | Manual — you control all SQL | Relies on reflection; no AOT support |
+| **LINQ queries on nested data** | `store.Query<Order>().Where(o => o.Lines.Any(l => l.Price > 10)).ToList()` | Hand-written `json_extract` SQL | Not possible on nested data |
+| **AOT / trimming** | First-class optional `JsonTypeInfo<T>` on every API | Manual — you control all SQL | Relies on reflection; no AOT support |
 | **Migrations** | Not needed — schema-free JSON | You own every migration | You own every migration |
-| **Projections** | SQL-level `json_object` projections | Manual SQL | Not available |
+| **Projections** | SQL-level `json_object` projections via `.Select()` | Manual SQL | Not available |
 | **Transactions** | `store.RunInTransaction(async tx => ...)` | Manual `BeginTransaction` + `Commit`/`Rollback` | `RunInTransactionAsync` available |
 | **JSON property indexes** | `store.CreateIndexAsync<User>(u => u.Name, ctx.User)` — LINQ expression indexes on `json_extract` | Manual `CREATE INDEX` on `json_extract` | Column indexes only |
 | **Best fit** | Object graphs, nested data, rapid prototyping, settings stores, caches | Full SQL control, complex reporting queries, performance-critical bulk ops | Simple flat-table CRUD |
@@ -50,7 +51,7 @@ Entity Framework Core is a natural choice for server-side .NET, but it becomes a
 
 | Concern | EF Core | Shiny.SqliteDocumentDb |
 |---|---|---|
-| **AOT / trimming** | Reflection-heavy; no AOT support | Every API has a `JsonTypeInfo<T>` overload; zero reflection required |
+| **AOT / trimming** | Reflection-heavy; no AOT support | Every API has optional `JsonTypeInfo<T>`; zero reflection required |
 | **Migrations** | Required for every schema change | Not needed — schema-free JSON storage |
 | **Nested objects** | Normalized tables, foreign keys, JOINs | Single document, single write, single read |
 | **App bundle size** | Large dependency tree | Single dependency on `Microsoft.Data.Sqlite` |
@@ -183,19 +184,19 @@ Streaming yields results one-at-a-time without building an intermediate `List<T>
 
 | Method | Count | Mean | Gen1 | Allocated |
 |---|---|---|---|---|
-| GetAll (buffered) | 100 | 44.1 us | 0.18 | 29.4 KB |
-| GetAllStream (IAsyncEnumerable) | 100 | 42.7 us | — | 27.3 KB |
-| GetAll (buffered) | 1000 | 384 us | 12.2 | 283 KB |
-| GetAllStream (IAsyncEnumerable) | 1000 | 393 us | — | 266 KB |
+| ToList (buffered) | 100 | 44.1 us | 0.18 | 29.4 KB |
+| ToAsyncEnumerable (IAsyncEnumerable) | 100 | 42.7 us | — | 27.3 KB |
+| ToList (buffered) | 1000 | 384 us | 12.2 | 283 KB |
+| ToAsyncEnumerable (IAsyncEnumerable) | 1000 | 393 us | — | 266 KB |
 
 #### Nested objects
 
 | Method | Count | Mean | Gen1 | Allocated |
 |---|---|---|---|---|
-| GetAll nested (buffered) | 100 | 154 us | 6.1 | 218 KB |
-| GetAllStream nested (IAsyncEnumerable) | 100 | 156 us | — | 216 KB |
-| GetAll nested (buffered) | 1000 | 1,541 us | 130.9 | 2,165 KB |
-| GetAllStream nested (IAsyncEnumerable) | 1000 | 1,512 us | 2.0 | 2,149 KB |
+| ToList nested (buffered) | 100 | 154 us | 6.1 | 218 KB |
+| ToAsyncEnumerable nested (IAsyncEnumerable) | 100 | 156 us | — | 216 KB |
+| ToList nested (buffered) | 1000 | 1,541 us | 130.9 | 2,165 KB |
+| ToAsyncEnumerable nested (IAsyncEnumerable) | 1000 | 1,512 us | 2.0 | 2,149 KB |
 
 #### Nested query (filter by status, ~500 matches from 1000)
 
@@ -229,8 +230,9 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 |---|---|---|---|
 | `ConnectionString` | `string` | (required) | SQLite connection string |
 | `TypeNameResolution` | `TypeNameResolution` | `ShortName` | How type names are stored — `ShortName` (e.g. `User`) or `FullName` (e.g. `MyApp.Models.User`) |
-| `JsonSerializerOptions` | `JsonSerializerOptions?` | `null` | JSON serialization settings. When a `JsonSerializerContext` is attached as the `TypeInfoResolver`, overloads without `JsonTypeInfo<T>` auto-resolve type info from the context |
+| `JsonSerializerOptions` | `JsonSerializerOptions?` | `null` | JSON serialization settings. When a `JsonSerializerContext` is attached as the `TypeInfoResolver`, all methods auto-resolve type info from the context |
 | `UseReflectionFallback` | `bool` | `true` | When `false`, throws `InvalidOperationException` if a type can't be resolved from the configured `TypeInfoResolver` instead of falling back to reflection. Recommended for AOT deployments |
+| `Logging` | `Action<string>?` | `null` | Callback invoked with every SQL statement executed |
 
 ### Dependency injection
 
@@ -248,7 +250,7 @@ services.AddSqliteDocumentStore(opts =>
     };
 });
 
-// AOT-safe — attach a JsonSerializerContext so all overloads auto-resolve type info
+// AOT-safe — attach a JsonSerializerContext so all methods auto-resolve type info
 var ctx = new AppJsonContext(new JsonSerializerOptions
 {
     PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -284,9 +286,9 @@ var ctx = new AppJsonContext(new JsonSerializerOptions
 
 Pass `ctx.Options` to `DocumentStoreOptions.JsonSerializerOptions` so that the expression visitor and serializer share the same configuration.
 
-### Using the resolver for cleaner API calls
+### Optional JsonTypeInfo<T> parameters
 
-When a `JsonSerializerContext` is attached to `DocumentStoreOptions.JsonSerializerOptions`, the reflection-marked overloads (without `JsonTypeInfo<T>`) automatically resolve type info from the configured resolver. This means you can configure the context once and skip passing `JsonTypeInfo<T>` on every call — while retaining full AOT safety.
+All `JsonTypeInfo<T>` parameters across the entire API are optional (`= null` default). When omitted, type info is automatically resolved from the configured `JsonSerializerOptions.TypeInfoResolver`. This means you can configure a `JsonSerializerContext` once and skip passing `JsonTypeInfo<T>` on every call — while retaining full AOT safety.
 
 #### Setup
 
@@ -326,18 +328,17 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 
 #### Before vs after
 
-| Without resolver (explicit `JsonTypeInfo<T>`) | With resolver (auto-resolved) |
+| With explicit `JsonTypeInfo<T>` | With auto-resolution (recommended) |
 |---|---|
 | `store.Set(user, ctx.User)` | `store.Set(user)` |
 | `store.Set("id", user, ctx.User)` | `store.Set("id", user)` |
-| `store.Get<User>("id", ctx.User)` | `store.Get<User>("id")` |
-| `store.GetAll<User>(ctx.User)` | `store.GetAll<User>()` |
+| `store.Get("id", ctx.User)` | `store.Get<User>("id")` |
 | `store.Upsert("id", patch, ctx.User)` | `store.Upsert("id", patch)` |
 | `store.SetProperty("id", (User u) => u.Age, 31, ctx.User)` | `store.SetProperty<User>("id", u => u.Age, 31)` |
 | `store.RemoveProperty("id", (User u) => u.Email, ctx.User)` | `store.RemoveProperty<User>("id", u => u.Email)` |
-| `store.Query<User>(sql, ctx.User, parms)` | `store.Query<User>(sql, parms)` |
-| `store.GetAllStream<User>(ctx.User)` | `store.GetAllStream<User>()` |
-| `store.QueryStream<User>(sql, ctx.User, parms)` | `store.QueryStream<User>(sql, parms)` |
+| `store.Query(ctx.User)` | `store.Query<User>()` |
+| `store.Query<User>("sql", ctx.User, parms)` | `store.Query<User>("sql", parameters: parms)` |
+| `store.QueryStream<User>("sql", ctx.User, parms)` | `store.QueryStream<User>("sql", parameters: parms)` |
 
 #### Example
 
@@ -345,24 +346,24 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 // All of these are AOT-safe when ctx.Options is configured
 var id = await store.Set(new User { Name = "Alice", Age = 25 });
 var user = await store.Get<User>(id);
-var all = await store.GetAll<User>();
+var all = await store.Query<User>().ToList();
 await store.Upsert("user-1", new User { Name = "Alice", Age = 30 });
 
 var results = await store.Query<User>(
     "json_extract(Data, '$.age') > @minAge",
-    new { minAge = 30 });
+    parameters: new { minAge = 30 });
 
-await foreach (var u in store.GetAllStream<User>())
+await foreach (var u in store.Query<User>().ToAsyncEnumerable())
     Console.WriteLine(u.Name);
 ```
 
 #### How it works
 
-Each reflection-marked overload checks `JsonSerializerOptions.TryGetTypeInfo(typeof(T))` before falling back to reflection. If the resolver returns a `JsonTypeInfo<T>`, the call is delegated to the corresponding AOT overload internally. The `[RequiresUnreferencedCode]` / `[RequiresDynamicCode]` attributes remain on these methods since they can still use reflection when no resolver is configured.
+Each method checks `JsonSerializerOptions.TryGetTypeInfo(typeof(T))` before falling back to reflection. If the resolver returns a `JsonTypeInfo<T>`, it is used for serialization. When `UseReflectionFallback = false` and no type info can be resolved, a clear `InvalidOperationException` is thrown.
 
 #### Reflection fallback behavior
 
-By default (`UseReflectionFallback = true`), if no `TypeInfoResolver` is configured or the type isn't registered in the context, these methods fall back to reflection-based serialization. Existing code without a `JsonSerializerContext` continues to work unchanged.
+By default (`UseReflectionFallback = true`), if no `TypeInfoResolver` is configured or the type isn't registered in the context, methods fall back to reflection-based serialization. Existing code without a `JsonSerializerContext` continues to work unchanged.
 
 **For AOT deployments, set `UseReflectionFallback = false`.** Reflection-based serialization produces hard-to-diagnose errors under trimming and AOT. With this flag disabled, you get a clear `InvalidOperationException` at the point of use:
 
@@ -373,20 +374,18 @@ Register it in your JsonSerializerContext or pass a JsonTypeInfo<UnregisteredTyp
 
 This tells you exactly which type is missing and what to do about it. Every type must either be registered in your `JsonSerializerContext` via `[JsonSerializable(typeof(T))]` or passed with an explicit `JsonTypeInfo<T>` parameter.
 
-> **Note:** Expression-based queries (`store.Query(u => u.Age > 30, ctx.User)`) and projections always require explicit `JsonTypeInfo<T>` because the LINQ expression visitor needs type metadata to resolve JSON property names. Auto-resolution applies to the 8 methods in the table above.
-
 ## Basic CRUD Operations
 
 ### Store a document (auto-generated ID)
 
 ```csharp
-var id = await store.Set(new User { Name = "Alice", Age = 25 }, ctx.User);
+var id = await store.Set(new User { Name = "Alice", Age = 25 });
 ```
 
 ### Store a document (explicit ID)
 
 ```csharp
-await store.Set("user-1", new User { Name = "Alice", Age = 25 }, ctx.User);
+await store.Set("user-1", new User { Name = "Alice", Age = 25 });
 ```
 
 ### Upsert with JSON Merge Patch
@@ -395,12 +394,12 @@ await store.Set("user-1", new User { Name = "Alice", Age = 25 }, ctx.User);
 
 ```csharp
 // Insert a full document
-await store.Set("user-1", new User { Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
+await store.Set("user-1", new User { Name = "Alice", Age = 25, Email = "alice@test.com" });
 
 // Merge patch — only update Name and Age, preserve Email
-await store.Upsert("user-1", new User { Name = "Alice", Age = 30 }, ctx.User);
+await store.Upsert("user-1", new User { Name = "Alice", Age = 30 });
 
-var user = await store.Get<User>("user-1", ctx.User);
+var user = await store.Get<User>("user-1");
 // user.Name == "Alice", user.Age == 30, user.Email == "alice@test.com" (preserved)
 ```
 
@@ -417,19 +416,19 @@ var user = await store.Get<User>("user-1", ctx.User);
 
 ```csharp
 // Update a scalar field
-await store.SetProperty<User>("user-1", u => u.Age, 31, ctx.User);
+await store.SetProperty<User>("user-1", u => u.Age, 31);
 
 // Update a string field
-await store.SetProperty<User>("user-1", u => u.Email, "newemail@test.com", ctx.User);
+await store.SetProperty<User>("user-1", u => u.Email, "newemail@test.com");
 
 // Set a field to null
-await store.SetProperty<User>("user-1", u => u.Email, null, ctx.User);
+await store.SetProperty<User>("user-1", u => u.Email, null);
 
 // Nested property — update a city within a shipping address
-await store.SetProperty<Order>("order-1", o => o.ShippingAddress.City, "Portland", ctx.Order);
+await store.SetProperty<Order>("order-1", o => o.ShippingAddress.City, "Portland");
 
 // Check if the document existed
-bool updated = await store.SetProperty<User>("user-1", u => u.Age, 31, ctx.User);
+bool updated = await store.SetProperty<User>("user-1", u => u.Age, 31);
 if (!updated)
     Console.WriteLine("Document not found");
 ```
@@ -450,16 +449,16 @@ WHERE Id = @id AND TypeName = @typeName;
 
 ```csharp
 // Remove a nullable field
-await store.RemoveProperty<User>("user-1", u => u.Email, ctx.User);
+await store.RemoveProperty<User>("user-1", u => u.Email);
 
 // Remove a nested property
-await store.RemoveProperty<Order>("order-1", o => o.ShippingAddress.City, ctx.Order);
+await store.RemoveProperty<Order>("order-1", o => o.ShippingAddress.City);
 
 // Remove a collection property (removes the entire array from the JSON)
-await store.RemoveProperty<Order>("order-1", o => o.Tags, ctx.Order);
+await store.RemoveProperty<Order>("order-1", o => o.Tags);
 
 // Check if the document existed
-bool updated = await store.RemoveProperty<User>("user-1", u => u.Email, ctx.User);
+bool updated = await store.RemoveProperty<User>("user-1", u => u.Email);
 ```
 
 **How it works:** The SQL executed is:
@@ -484,13 +483,7 @@ Unlike `SetProperty`, `RemoveProperty` works on any property type — scalar, ne
 ### Get a document by ID
 
 ```csharp
-var user = await store.Get<User>("user-1", ctx.User);
-```
-
-### Get all documents of a type
-
-```csharp
-var users = await store.GetAll<User>(ctx.User);
+var user = await store.Get<User>("user-1");
 ```
 
 ### Remove a document
@@ -499,87 +492,115 @@ var users = await store.GetAll<User>(ctx.User);
 bool deleted = await store.Remove<User>("user-1");
 ```
 
-### Remove documents matching a predicate (AOT-safe)
-
-```csharp
-int deletedCount = await store.Remove<User>(u => u.Age < 18, ctx.User);
-```
-
-See [Removing with expressions](#removing-with-expressions) for more examples.
-
 ### Clear all documents of a type
 
 ```csharp
 int deletedCount = await store.Clear<User>();
 ```
 
-## Querying
+## Fluent Query Builder
 
-### Expression-based queries (AOT-safe)
+The fluent query builder is the primary way to query, filter, sort, paginate, project, aggregate, stream, and delete documents. Start with `store.Query<T>()` and chain builder methods, then terminate with a materialization method.
+
+### Builder methods (non-executing)
+
+| Method | Description |
+|---|---|
+| `.Where(predicate)` | Filter by LINQ expression. Multiple calls combine with AND. |
+| `.OrderBy(selector)` | Sort ascending by property. |
+| `.OrderByDescending(selector)` | Sort descending by property. |
+| `.GroupBy(selector)` | Group by property (for aggregate projections with `Sql.*` markers). |
+| `.Paginate(offset, take)` | Limit results with SQL `LIMIT`/`OFFSET`. |
+| `.Select(selector, resultTypeInfo?)` | Project into a different shape via `json_object`. |
+
+### Terminal methods (execute SQL)
+
+| Method | Returns | Description |
+|---|---|---|
+| `.ToList()` | `Task<IReadOnlyList<T>>` | Materialize all results into a list. |
+| `.ToAsyncEnumerable()` | `IAsyncEnumerable<T>` | Stream results one-at-a-time without buffering. |
+| `.Count()` | `Task<long>` | Count matching documents. |
+| `.Any()` | `Task<bool>` | Check if any documents match. |
+| `.Remove()` | `Task<int>` | Delete matching documents and return count deleted. |
+| `.Max(selector)` | `Task<TValue>` | Maximum value of a property. |
+| `.Min(selector)` | `Task<TValue>` | Minimum value of a property. |
+| `.Sum(selector)` | `Task<TValue>` | Sum of a property. |
+| `.Average(selector)` | `Task<double>` | Average of a property. |
+
+### Get all documents of a type
+
+```csharp
+var users = await store.Query<User>().ToList();
+```
+
+### Expression-based queries
 
 The preferred way to query. Property names are resolved from `JsonTypeInfo` metadata, so `[JsonPropertyName]` attributes and naming policies are respected automatically.
 
 #### Equality and comparisons
 
 ```csharp
-var results = await store.Query<User>(u => u.Name == "Alice", ctx.User);
-var older = await store.Query<User>(u => u.Age > 30, ctx.User);
-var young = await store.Query<User>(u => u.Age <= 25, ctx.User);
+var results = await store.Query<User>().Where(u => u.Name == "Alice").ToList();
+var older = await store.Query<User>().Where(u => u.Age > 30).ToList();
+var young = await store.Query<User>().Where(u => u.Age <= 25).ToList();
 ```
 
 #### Logical operators
 
 ```csharp
-var results = await store.Query<User>(u => u.Age == 25 && u.Name == "Alice", ctx.User);
-var results = await store.Query<User>(u => u.Name == "Alice" || u.Name == "Bob", ctx.User);
-var results = await store.Query<User>(u => !(u.Name == "Alice"), ctx.User);
+var results = await store.Query<User>().Where(u => u.Age == 25 && u.Name == "Alice").ToList();
+var results = await store.Query<User>().Where(u => u.Name == "Alice" || u.Name == "Bob").ToList();
+var results = await store.Query<User>().Where(u => !(u.Name == "Alice")).ToList();
 ```
 
 #### Null checks
 
 ```csharp
-var noEmail = await store.Query<User>(u => u.Email == null, ctx.User);
-var hasEmail = await store.Query<User>(u => u.Email != null, ctx.User);
+var noEmail = await store.Query<User>().Where(u => u.Email == null).ToList();
+var hasEmail = await store.Query<User>().Where(u => u.Email != null).ToList();
 ```
 
 #### String methods
 
 ```csharp
-var results = await store.Query<User>(u => u.Name.Contains("li"), ctx.User);
-var results = await store.Query<User>(u => u.Name.StartsWith("Al"), ctx.User);
-var results = await store.Query<User>(u => u.Name.EndsWith("ob"), ctx.User);
+var results = await store.Query<User>().Where(u => u.Name.Contains("li")).ToList();
+var results = await store.Query<User>().Where(u => u.Name.StartsWith("Al")).ToList();
+var results = await store.Query<User>().Where(u => u.Name.EndsWith("ob")).ToList();
 ```
 
 #### Nested object properties
 
 ```csharp
-var results = await store.Query<Order>(o => o.ShippingAddress.City == "Portland", ctx.Order);
+var results = await store.Query<Order>().Where(o => o.ShippingAddress.City == "Portland").ToList();
 ```
 
 #### Collection queries with Any()
 
 ```csharp
 // Object collection — filter by child property
-var results = await store.Query<Order>(
-    o => o.Lines.Any(l => l.ProductName == "Widget"), ctx.Order);
+var results = await store.Query<Order>()
+    .Where(o => o.Lines.Any(l => l.ProductName == "Widget"))
+    .ToList();
 
 // Primitive collection — filter by value
-var results = await store.Query<Order>(
-    o => o.Tags.Any(t => t == "priority"), ctx.Order);
+var results = await store.Query<Order>()
+    .Where(o => o.Tags.Any(t => t == "priority"))
+    .ToList();
 
 // Check if a collection has any elements
-var results = await store.Query<Order>(o => o.Tags.Any(), ctx.Order);
+var results = await store.Query<Order>().Where(o => o.Tags.Any()).ToList();
 ```
 
 #### Collection queries with Count()
 
 ```csharp
 // Count elements (no predicate)
-var results = await store.Query<Order>(o => o.Lines.Count() > 1, ctx.Order);
+var results = await store.Query<Order>().Where(o => o.Lines.Count() > 1).ToList();
 
 // Count matching elements (with predicate)
-var results = await store.Query<Order>(
-    o => o.Lines.Count(l => l.Quantity >= 3) >= 1, ctx.Order);
+var results = await store.Query<Order>()
+    .Where(o => o.Lines.Count(l => l.Quantity >= 3) >= 1)
+    .ToList();
 ```
 
 #### DateTime and DateTimeOffset queries
@@ -588,31 +609,33 @@ DateTime and DateTimeOffset values are formatted to match System.Text.Json's def
 
 ```csharp
 var cutoff = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-var upcoming = await store.Query<Event>(e => e.StartDate > cutoff, ctx.Event);
+var upcoming = await store.Query<Event>().Where(e => e.StartDate > cutoff).ToList();
 
 var start = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
 var end = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-var inRange = await store.Query<Event>(
-    e => e.CreatedAt >= start && e.CreatedAt < end, ctx.Event);
+var inRange = await store.Query<Event>()
+    .Where(e => e.CreatedAt >= start && e.CreatedAt < end)
+    .ToList();
 ```
 
 #### Captured variables
 
 ```csharp
 var targetName = "Alice";
-var results = await store.Query<User>(u => u.Name == targetName, ctx.User);
+var results = await store.Query<User>().Where(u => u.Name == targetName).ToList();
 ```
 
 ### Counting with expressions
 
 ```csharp
-var count = await store.Count<User>(u => u.Age == 25, ctx.User);
+var count = await store.Query<User>().Where(u => u.Age == 25).Count();
 
 // With collection predicates
-var count = await store.Count<Order>(
-    o => o.Lines.Any(l => l.ProductName == "Gadget"), ctx.Order);
+var count = await store.Query<Order>()
+    .Where(o => o.Lines.Any(l => l.ProductName == "Gadget"))
+    .Count();
 
-var count = await store.Count<Order>(o => o.Lines.Count() > 1, ctx.Order);
+var count = await store.Query<Order>().Where(o => o.Lines.Count() > 1).Count();
 ```
 
 ### Removing with expressions
@@ -621,52 +644,118 @@ Delete documents matching a predicate in a single SQL DELETE — no need to quer
 
 ```csharp
 // Simple predicate — returns number of deleted rows
-int deleted = await store.Remove<User>(u => u.Age < 18, ctx.User);
+int deleted = await store.Query<User>().Where(u => u.Age < 18).Remove();
 
 // Complex predicates with && and ||
-int deleted = await store.Remove<Order>(
-    o => o.ShippingAddress.City == "Portland" || o.Status == "Cancelled", ctx.Order);
+int deleted = await store.Query<Order>()
+    .Where(o => o.ShippingAddress.City == "Portland" || o.Status == "Cancelled")
+    .Remove();
 
 // Nested properties
-int deleted = await store.Remove<Order>(
-    o => o.ShippingAddress.State == "OR", ctx.Order);
+int deleted = await store.Query<Order>()
+    .Where(o => o.ShippingAddress.State == "OR")
+    .Remove();
 
 // Captured variables
 var cutoffAge = 65;
-int deleted = await store.Remove<User>(u => u.Age > cutoffAge, ctx.User);
+int deleted = await store.Query<User>().Where(u => u.Age > cutoffAge).Remove();
+```
+
+### Ordering
+
+Sort results at the SQL level using the fluent `.OrderBy()` and `.OrderByDescending()` methods.
+
+```csharp
+// Ascending
+var users = await store.Query<User>().OrderBy(u => u.Age).ToList();
+
+// Descending
+var users = await store.Query<User>().OrderByDescending(u => u.Age).ToList();
+
+// With filter
+var results = await store.Query<User>()
+    .Where(u => u.Age > 25)
+    .OrderBy(u => u.Name)
+    .ToList();
+
+// With streaming
+await foreach (var user in store.Query<User>().OrderByDescending(u => u.Age).ToAsyncEnumerable())
+{
+    Console.WriteLine(user.Name);
+}
+```
+
+Generated SQL: `ORDER BY json_extract(Data, '$.age') ASC`
+
+### Pagination
+
+`Paginate(offset, take)` appends `LIMIT {take} OFFSET {offset}` to the generated SQL. It is a builder method that does not execute the query — it stores state until a terminal method is called.
+
+```csharp
+// First page (items 0-19)
+var page1 = await store.Query<User>()
+    .OrderBy(u => u.Name)
+    .Paginate(0, 20)
+    .ToList();
+
+// Second page (items 20-39)
+var page2 = await store.Query<User>()
+    .OrderBy(u => u.Name)
+    .Paginate(20, 20)
+    .ToList();
+
+// With filtering
+var page = await store.Query<User>()
+    .Where(u => u.Age >= 18)
+    .OrderBy(u => u.Age)
+    .Paginate(0, 10)
+    .ToList();
+
+// With projection
+var page = await store.Query<User>()
+    .OrderBy(u => u.Name)
+    .Paginate(0, 10)
+    .Select(u => new UserSummary { Name = u.Name, Email = u.Email })
+    .ToList();
+
+// With streaming
+await foreach (var user in store.Query<User>()
+    .OrderBy(u => u.Name)
+    .Paginate(0, 50)
+    .ToAsyncEnumerable())
+{
+    Console.WriteLine(user.Name);
+}
 ```
 
 ### Projections
 
-Project query results into a different shape using a selector expression. Only the selected properties are extracted at the SQL level via `json_object` — no full document deserialization needed.
+Project query results into a different shape using `.Select()`. Only the selected properties are extracted at the SQL level via `json_object` — no full document deserialization needed.
 
 #### Flat projection
 
 ```csharp
-var results = await store.Query<User, UserSummary>(
-    u => u.Age == 25,
-    u => new UserSummary { Name = u.Name, Email = u.Email },
-    ctx.User,
-    ctx.UserSummary);
+var results = await store.Query<User>()
+    .Where(u => u.Age == 25)
+    .Select(u => new UserSummary { Name = u.Name, Email = u.Email })
+    .ToList();
 ```
 
 #### Nested source properties
 
 ```csharp
-var results = await store.Query<Order, OrderSummary>(
-    o => o.Status == "Shipped",
-    o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
-    ctx.Order,
-    ctx.OrderSummary);
+var results = await store.Query<Order>()
+    .Where(o => o.Status == "Shipped")
+    .Select(o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City })
+    .ToList();
 ```
 
-#### GetAll with projection
+#### All documents with projection
 
 ```csharp
-var results = await store.GetAll<Order, OrderDetail>(
-    o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count() },
-    ctx.Order,
-    ctx.OrderDetail);
+var results = await store.Query<Order>()
+    .Select(o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count() })
+    .ToList();
 ```
 
 #### Collection methods in projections
@@ -693,62 +782,84 @@ o => new OrderDetail { Customer = o.CustomerName, HasPriority = o.Tags.Any(t => 
 
 Inner predicates support the same operators as WHERE clause expressions: comparisons, logical operators, null checks, string methods (`Contains`, `StartsWith`, `EndsWith`), and captured variables.
 
-### Streaming Queries
+### Scalar aggregates
 
-All query methods that return `IReadOnlyList<T>` have streaming counterparts that return `IAsyncEnumerable<T>`, yielding results one-at-a-time without buffering the entire result set into memory.
-
-#### GetAllStream
+Compute Max, Min, Sum, Average across documents using terminal methods on the query builder.
 
 ```csharp
-await foreach (var user in store.GetAllStream<User>(ctx.User))
+var maxAge = await store.Query<User>().Max(u => u.Age);
+var minAge = await store.Query<User>().Min(u => u.Age);
+var totalAge = await store.Query<User>().Sum(u => u.Age);
+var avgAge = await store.Query<User>().Average(u => u.Age);
+
+// With predicate filter
+var maxAge = await store.Query<User>().Where(u => u.Age < 35).Max(u => u.Age);
+```
+
+### Aggregate projections (GROUP BY)
+
+Use `Sql` marker class for aggregate projections with automatic GROUP BY.
+
+```csharp
+var results = await store.Query<Order>()
+    .Select(o => new OrderStats
+    {
+        Status = o.Status,            // GROUP BY column
+        OrderCount = Sql.Count(),     // COUNT(*)
+    })
+    .ToList();
+
+// All Sql markers: Sql.Count(), Sql.Max(x.Prop), Sql.Min(x.Prop), Sql.Sum(x.Prop), Sql.Avg(x.Prop)
+
+// With predicate filter
+var results = await store.Query<Order>()
+    .Where(o => o.Status == "Shipped")
+    .Select(o => new OrderStats { Status = o.Status, OrderCount = Sql.Count() })
+    .ToList();
+
+// Explicit GroupBy
+var results = await store.Query<Order>()
+    .GroupBy(o => o.Status)
+    .Select(o => new OrderStats { Status = o.Status, OrderCount = Sql.Count() })
+    .ToList();
+```
+
+### Streaming queries
+
+Use `.ToAsyncEnumerable()` instead of `.ToList()` to stream results one-at-a-time without buffering the entire result set into memory.
+
+```csharp
+// Stream all
+await foreach (var user in store.Query<User>().ToAsyncEnumerable())
 {
     Console.WriteLine(user.Name);
 }
-```
 
-#### GetAllStream with projection
+// Stream with filter and sort
+await foreach (var user in store.Query<User>()
+    .Where(u => u.Age > 30)
+    .OrderBy(u => u.Name)
+    .ToAsyncEnumerable())
+{
+    Console.WriteLine(user.Name);
+}
 
-```csharp
-await foreach (var summary in store.GetAllStream<Order, OrderSummary>(
-    o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
-    ctx.Order,
-    ctx.OrderSummary))
+// Stream with projection
+await foreach (var summary in store.Query<Order>()
+    .Where(o => o.Status == "Shipped")
+    .Select(o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City })
+    .ToAsyncEnumerable())
 {
     Console.WriteLine($"{summary.Customer} in {summary.City}");
 }
-```
 
-#### QueryStream with expression
-
-```csharp
-await foreach (var user in store.QueryStream<User>(u => u.Age > 30, ctx.User))
+// Stream with pagination
+await foreach (var user in store.Query<User>()
+    .OrderBy(u => u.Name)
+    .Paginate(0, 50)
+    .ToAsyncEnumerable())
 {
     Console.WriteLine(user.Name);
-}
-```
-
-#### QueryStream with raw SQL
-
-```csharp
-await foreach (var user in store.QueryStream<User>(
-    "json_extract(Data, '$.name') = @name",
-    ctx.User,
-    new { name = "Alice" }))
-{
-    Console.WriteLine(user.Name);
-}
-```
-
-#### QueryStream with projection
-
-```csharp
-await foreach (var summary in store.QueryStream<Order, OrderSummary>(
-    o => o.Status == "Shipped",
-    o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
-    ctx.Order,
-    ctx.OrderSummary))
-{
-    Console.WriteLine(summary.Customer);
 }
 ```
 
@@ -761,20 +872,26 @@ For advanced queries not covered by expressions, use raw SQL with `json_extract`
 ```csharp
 var results = await store.Query<User>(
     "json_extract(Data, '$.name') = @name",
-    ctx.User,
-    new { name = "Alice" });
+    parameters: new { name = "Alice" });
 
 // With dictionary parameters (AOT-safe)
 var parms = new Dictionary<string, object?> { ["name"] = "Alice" };
 var results = await store.Query<User>(
     "json_extract(Data, '$.name') = @name",
-    ctx.User,
-    parms);
+    parameters: parms);
 
 // Count with raw SQL
 var count = await store.Count<User>(
     "json_extract(Data, '$.age') > @minAge",
     new { minAge = 30 });
+
+// Streaming with raw SQL
+await foreach (var user in store.QueryStream<User>(
+    "json_extract(Data, '$.name') = @name",
+    parameters: new { name = "Alice" }))
+{
+    Console.WriteLine(user.Name);
+}
 ```
 
 ## Transactions
@@ -782,8 +899,8 @@ var count = await store.Count<User>(
 ```csharp
 await store.RunInTransaction(async tx =>
 {
-    await tx.Set("u1", new User { Name = "Alice", Age = 25 }, ctx.User);
-    await tx.Set("u2", new User { Name = "Bob", Age = 30 }, ctx.User);
+    await tx.Set("u1", new User { Name = "Alice", Age = 25 });
+    await tx.Set("u2", new User { Name = "Bob", Age = 30 });
     // Commits on success, rolls back on exception
 });
 ```
