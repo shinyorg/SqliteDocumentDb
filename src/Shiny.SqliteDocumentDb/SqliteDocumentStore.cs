@@ -323,27 +323,29 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
 
     [RequiresUnreferencedCode(ReflectionMessage)]
     [RequiresDynamicCode(ReflectionMessage)]
-    public Task<IReadOnlyList<T>> GetAll<T>(CancellationToken cancellationToken = default) where T : class
+    public Task<IReadOnlyList<T>> GetAll<T>(OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class
     {
         if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.GetAll(typeInfo, cancellationToken);
+            return this.GetAll(typeInfo, orderBy, cancellationToken);
 
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName{orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize<T>(json, this.jsonOptions)!, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
-    public Task<IReadOnlyList<T>> GetAll<T>(JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    public Task<IReadOnlyList<T>> GetAll<T>(JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class
     {
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, jsonTypeInfo);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName{orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
@@ -354,14 +356,16 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<T> sourceTypeInfo,
         JsonTypeInfo<TResult> resultTypeInfo,
+        OrderBy<T>? orderBy = null,
         CancellationToken cancellationToken = default)
         where T : class where TResult : class
     {
         var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, sourceTypeInfo);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName{orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, projParms);
 
@@ -428,29 +432,31 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
 
     [RequiresUnreferencedCode(ReflectionMessage)]
     [RequiresDynamicCode(ReflectionMessage)]
-    public IAsyncEnumerable<T> GetAllStream<T>(CancellationToken cancellationToken = default) where T : class
+    public IAsyncEnumerable<T> GetAllStream<T>(OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class
     {
         if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.GetAllStream(typeInfo, cancellationToken);
+            return this.GetAllStream(typeInfo, orderBy, cancellationToken);
 
         var typeName = this.ResolveTypeName<T>();
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions);
         return this.ReadStreamAsync<T>(
             cmd =>
             {
-                cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+                cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName{orderByClause};";
                 cmd.Parameters.AddWithValue("@typeName", typeName);
             },
             json => JsonSerializer.Deserialize<T>(json, this.jsonOptions)!,
             cancellationToken);
     }
 
-    public IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    public IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class
     {
         var typeName = this.ResolveTypeName<T>();
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, jsonTypeInfo);
         return this.ReadStreamAsync<T>(
             cmd =>
             {
-                cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+                cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName{orderByClause};";
                 cmd.Parameters.AddWithValue("@typeName", typeName);
             },
             json => JsonSerializer.Deserialize(json, jsonTypeInfo)!,
@@ -461,15 +467,17 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<T> sourceTypeInfo,
         JsonTypeInfo<TResult> resultTypeInfo,
+        OrderBy<T>? orderBy = null,
         CancellationToken cancellationToken = default)
         where T : class where TResult : class
     {
         var typeName = this.ResolveTypeName<T>();
         var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, sourceTypeInfo);
         return this.ReadStreamAsync<TResult>(
             cmd =>
             {
-                cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName;";
+                cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName{orderByClause};";
                 cmd.Parameters.AddWithValue("@typeName", typeName);
                 BindDictionaryParameters(cmd, projParms);
             },
@@ -510,14 +518,15 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             cancellationToken);
     }
 
-    public IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    public IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class
     {
         var typeName = this.ResolveTypeName<T>();
         var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo);
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, jsonTypeInfo);
         return this.ReadStreamAsync<T>(
             cmd =>
             {
-                cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+                cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause}){orderByClause};";
                 cmd.Parameters.AddWithValue("@typeName", typeName);
                 BindDictionaryParameters(cmd, parms);
             },
@@ -530,16 +539,18 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<T> sourceTypeInfo,
         JsonTypeInfo<TResult> resultTypeInfo,
+        OrderBy<T>? orderBy = null,
         CancellationToken cancellationToken = default)
         where T : class where TResult : class
     {
         var typeName = this.ResolveTypeName<T>();
         var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
         var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, sourceTypeInfo);
         return this.ReadStreamAsync<TResult>(
             cmd =>
             {
-                cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+                cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause}){orderByClause};";
                 cmd.Parameters.AddWithValue("@typeName", typeName);
                 BindDictionaryParameters(cmd, parms);
                 BindDictionaryParameters(cmd, projParms);
@@ -691,13 +702,14 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         }, cancellationToken);
     }
 
-    public Task<IReadOnlyList<T>> Query<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    public Task<IReadOnlyList<T>> Query<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class
     {
         var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo);
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, jsonTypeInfo);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause}){orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, parms);
 
@@ -710,15 +722,17 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<T> sourceTypeInfo,
         JsonTypeInfo<TResult> resultTypeInfo,
+        OrderBy<T>? orderBy = null,
         CancellationToken cancellationToken = default)
         where T : class where TResult : class
     {
         var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
         var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, sourceTypeInfo);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause}){orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, parms);
             BindDictionaryParameters(cmd, projParms);
@@ -927,6 +941,26 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             var paramName = kvp.Key.StartsWith('@') ? kvp.Key : "@" + kvp.Key;
             cmd.Parameters.AddWithValue(paramName, kvp.Value ?? DBNull.Value);
         }
+    }
+
+    static string ResolveOrderByClause<T>(OrderBy<T>? orderBy, JsonSerializerOptions jsonOptions, JsonTypeInfo<T> jsonTypeInfo) where T : class
+    {
+        if (orderBy is null) return "";
+        var ob = orderBy.Value;
+        var jsonPath = IndexExpressionHelper.ResolveJsonPath(ob.Selector, jsonOptions, jsonTypeInfo);
+        var direction = ob.IsDescending ? "DESC" : "ASC";
+        return $" ORDER BY json_extract(Data, '$.{jsonPath}') {direction}";
+    }
+
+    [RequiresUnreferencedCode(ReflectionMessage)]
+    [RequiresDynamicCode(ReflectionMessage)]
+    static string ResolveOrderByClause<T>(OrderBy<T>? orderBy, JsonSerializerOptions jsonOptions) where T : class
+    {
+        if (orderBy is null) return "";
+        var ob = orderBy.Value;
+        var jsonPath = IndexExpressionHelper.ResolveJsonPath(ob.Selector, jsonOptions);
+        var direction = ob.IsDescending ? "DESC" : "ASC";
+        return $" ORDER BY json_extract(Data, '$.{jsonPath}') {direction}";
     }
 
     static async Task<IReadOnlyList<T>> ReadListAsync<T>(SqliteCommand cmd, Func<string, T> deserialize, CancellationToken ct)
@@ -1176,21 +1210,23 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
 
         [RequiresUnreferencedCode(ReflectionMessage)]
         [RequiresDynamicCode(ReflectionMessage)]
-        public async Task<IReadOnlyList<T>> GetAll<T>(CancellationToken cancellationToken = default) where T : class
+        public async Task<IReadOnlyList<T>> GetAll<T>(OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class
         {
             if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-                return await this.GetAll(typeInfo, cancellationToken).ConfigureAwait(false);
+                return await this.GetAll(typeInfo, orderBy, cancellationToken).ConfigureAwait(false);
 
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName{orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize<T>(json, this.jsonOptions)!, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task<IReadOnlyList<T>> GetAll<T>(JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        public async Task<IReadOnlyList<T>> GetAll<T>(JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class
         {
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, jsonTypeInfo);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName{orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
         }
@@ -1199,12 +1235,14 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             Expression<Func<T, TResult>> selector,
             JsonTypeInfo<T> sourceTypeInfo,
             JsonTypeInfo<TResult> resultTypeInfo,
+            OrderBy<T>? orderBy = null,
             CancellationToken cancellationToken = default)
             where T : class where TResult : class
         {
             var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, sourceTypeInfo);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName{orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, projParms);
             return await ReadListAsync<TResult>(cmd, json => JsonSerializer.Deserialize(json, resultTypeInfo)!, cancellationToken).ConfigureAwait(false);
@@ -1235,17 +1273,18 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
 
         [RequiresUnreferencedCode(ReflectionMessage)]
         [RequiresDynamicCode(ReflectionMessage)]
-        public async IAsyncEnumerable<T> GetAllStream<T>([EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        public async IAsyncEnumerable<T> GetAllStream<T>(OrderBy<T>? orderBy = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
         {
             if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
             {
-                await foreach (var item in this.GetAllStream(typeInfo, cancellationToken).ConfigureAwait(false))
+                await foreach (var item in this.GetAllStream(typeInfo, orderBy, cancellationToken).ConfigureAwait(false))
                     yield return item;
                 yield break;
             }
 
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName{orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -1253,10 +1292,11 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
                 yield return JsonSerializer.Deserialize<T>(reader.GetString(0), this.jsonOptions)!;
         }
 
-        public async IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        public async IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
         {
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, jsonTypeInfo);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName{orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -1268,12 +1308,14 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             Expression<Func<T, TResult>> selector,
             JsonTypeInfo<T> sourceTypeInfo,
             JsonTypeInfo<TResult> resultTypeInfo,
+            OrderBy<T>? orderBy = null,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
             where T : class where TResult : class
         {
             var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, sourceTypeInfo);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName{orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, projParms);
 
@@ -1315,11 +1357,12 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
                 yield return JsonSerializer.Deserialize(reader.GetString(0), jsonTypeInfo)!;
         }
 
-        public async IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        public async IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
         {
             var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo);
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, jsonTypeInfo);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause}){orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, parms);
 
@@ -1333,13 +1376,15 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             Expression<Func<T, TResult>> selector,
             JsonTypeInfo<T> sourceTypeInfo,
             JsonTypeInfo<TResult> resultTypeInfo,
+            OrderBy<T>? orderBy = null,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
             where T : class where TResult : class
         {
             var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
             var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, sourceTypeInfo);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause}){orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, parms);
             BindDictionaryParameters(cmd, projParms);
@@ -1477,11 +1522,12 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             return Convert.ToInt32(result);
         }
 
-        public async Task<IReadOnlyList<T>> Query<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        public async Task<IReadOnlyList<T>> Query<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class
         {
             var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo);
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, jsonTypeInfo);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause}){orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, parms);
             return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
@@ -1492,13 +1538,15 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             Expression<Func<T, TResult>> selector,
             JsonTypeInfo<T> sourceTypeInfo,
             JsonTypeInfo<TResult> resultTypeInfo,
+            OrderBy<T>? orderBy = null,
             CancellationToken cancellationToken = default)
             where T : class where TResult : class
         {
             var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
             var (projection, projParms) = ProjectionTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            var orderByClause = ResolveOrderByClause(orderBy, this.jsonOptions, sourceTypeInfo);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.CommandText = $"SELECT {projection} FROM documents WHERE TypeName = @typeName AND ({whereClause}){orderByClause};";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindDictionaryParameters(cmd, parms);
             BindDictionaryParameters(cmd, projParms);

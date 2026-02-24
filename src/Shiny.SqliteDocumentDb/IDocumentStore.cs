@@ -92,12 +92,12 @@ public interface IDocumentStore
     /// </summary>
     [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
     [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
-    Task<IReadOnlyList<T>> GetAll<T>(CancellationToken cancellationToken = default) where T : class;
+    Task<IReadOnlyList<T>> GetAll<T>(OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Gets all documents of the specified type (AOT-safe).
     /// </summary>
-    Task<IReadOnlyList<T>> GetAll<T>(JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+    Task<IReadOnlyList<T>> GetAll<T>(JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Gets all documents of the specified type, projected to a different type at the SQL level (AOT-safe).
@@ -107,6 +107,7 @@ public interface IDocumentStore
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<T> sourceTypeInfo,
         JsonTypeInfo<TResult> resultTypeInfo,
+        OrderBy<T>? orderBy = null,
         CancellationToken cancellationToken = default)
         where T : class where TResult : class;
 
@@ -127,7 +128,7 @@ public interface IDocumentStore
     /// <summary>
     /// Queries documents using a LINQ expression predicate (AOT-safe).
     /// </summary>
-    Task<IReadOnlyList<T>> Query<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+    Task<IReadOnlyList<T>> Query<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Queries documents using a LINQ expression predicate and projects to a different type at the SQL level (AOT-safe).
@@ -138,6 +139,7 @@ public interface IDocumentStore
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<T> sourceTypeInfo,
         JsonTypeInfo<TResult> resultTypeInfo,
+        OrderBy<T>? orderBy = null,
         CancellationToken cancellationToken = default)
         where T : class where TResult : class;
 
@@ -146,12 +148,12 @@ public interface IDocumentStore
     /// </summary>
     [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
     [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
-    IAsyncEnumerable<T> GetAllStream<T>(CancellationToken cancellationToken = default) where T : class;
+    IAsyncEnumerable<T> GetAllStream<T>(OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Streams all documents of the specified type one-at-a-time (AOT-safe).
     /// </summary>
-    IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+    IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Streams all documents of the specified type, projected to a different type at the SQL level (AOT-safe).
@@ -160,6 +162,7 @@ public interface IDocumentStore
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<T> sourceTypeInfo,
         JsonTypeInfo<TResult> resultTypeInfo,
+        OrderBy<T>? orderBy = null,
         CancellationToken cancellationToken = default)
         where T : class where TResult : class;
 
@@ -178,7 +181,7 @@ public interface IDocumentStore
     /// <summary>
     /// Streams documents matching a LINQ expression predicate one-at-a-time (AOT-safe).
     /// </summary>
-    IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+    IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Streams documents matching a LINQ expression predicate, projected to a different type at the SQL level (AOT-safe).
@@ -188,6 +191,7 @@ public interface IDocumentStore
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<T> sourceTypeInfo,
         JsonTypeInfo<TResult> resultTypeInfo,
+        OrderBy<T>? orderBy = null,
         CancellationToken cancellationToken = default)
         where T : class where TResult : class;
 
