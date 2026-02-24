@@ -62,3 +62,28 @@ public class OrderDetail
     public int LineCount { get; set; }
     public bool HasPriority { get; set; }
 }
+
+public class OrderLineAggregates
+{
+    public string Customer { get; set; } = "";
+    public int TotalQty { get; set; }
+    public decimal MaxPrice { get; set; }
+    public decimal MinPrice { get; set; }
+    public double AvgPrice { get; set; }
+}
+
+public class OrderStats
+{
+    public string Status { get; set; } = "";
+    public int OrderCount { get; set; }
+    public int MaxLineCount { get; set; }
+}
+
+public class PriceSummary
+{
+    public int TotalCount { get; set; }
+    public decimal MaxPrice { get; set; }
+    public decimal MinPrice { get; set; }
+    public decimal SumPrice { get; set; }
+    public double AvgPrice { get; set; }
+}

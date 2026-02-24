@@ -548,6 +548,132 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             cancellationToken);
     }
 
+    public Task<TValue> Max<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        => this.ScalarAggregateAsync<T, TValue>("MAX", selector, null, jsonTypeInfo, cancellationToken);
+
+    public Task<TValue> Max<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        => this.ScalarAggregateAsync<T, TValue>("MAX", selector, predicate, jsonTypeInfo, cancellationToken);
+
+    public Task<TValue> Min<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        => this.ScalarAggregateAsync<T, TValue>("MIN", selector, null, jsonTypeInfo, cancellationToken);
+
+    public Task<TValue> Min<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        => this.ScalarAggregateAsync<T, TValue>("MIN", selector, predicate, jsonTypeInfo, cancellationToken);
+
+    public Task<TValue> Sum<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        => this.ScalarAggregateAsync<T, TValue>("SUM", selector, null, jsonTypeInfo, cancellationToken);
+
+    public Task<TValue> Sum<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        => this.ScalarAggregateAsync<T, TValue>("SUM", selector, predicate, jsonTypeInfo, cancellationToken);
+
+    public Task<double> Average<T>(Expression<Func<T, object>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        => this.ScalarAverageAsync<T>(selector, null, jsonTypeInfo, cancellationToken);
+
+    public Task<double> Average<T>(Expression<Func<T, bool>> predicate, Expression<Func<T, object>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        => this.ScalarAverageAsync<T>(selector, predicate, jsonTypeInfo, cancellationToken);
+
+    Task<TValue> ScalarAggregateAsync<T, TValue>(
+        string sqlFunc,
+        Expression<Func<T, TValue>> selector,
+        Expression<Func<T, bool>>? predicate,
+        JsonTypeInfo<T> jsonTypeInfo,
+        CancellationToken cancellationToken) where T : class
+    {
+        var jsonPath = AggregateTranslator.ResolveJsonPathFromSelector(selector, this.jsonOptions, jsonTypeInfo);
+        var whereInfo = predicate != null ? SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo) : ((string?)null, new Dictionary<string, object?>());
+
+        return this.ExecuteAsync(async () =>
+        {
+            await using var cmd = this.connection.CreateCommand();
+            var sql = $"SELECT {sqlFunc}(json_extract(Data, '$.{jsonPath}')) FROM documents WHERE TypeName = @typeName";
+            if (whereInfo.Item1 != null)
+                sql += $" AND ({whereInfo.Item1})";
+            cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            if (whereInfo.Item2 != null)
+                BindDictionaryParameters(cmd, whereInfo.Item2);
+
+            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (result is null or DBNull)
+                return default!;
+            return (TValue)Convert.ChangeType(result, Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue));
+        }, cancellationToken);
+    }
+
+    Task<double> ScalarAverageAsync<T>(
+        Expression<Func<T, object>> selector,
+        Expression<Func<T, bool>>? predicate,
+        JsonTypeInfo<T> jsonTypeInfo,
+        CancellationToken cancellationToken) where T : class
+    {
+        var jsonPath = AggregateTranslator.ResolveJsonPathFromSelector(selector, this.jsonOptions, jsonTypeInfo);
+        var whereInfo = predicate != null ? SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo) : ((string?)null, new Dictionary<string, object?>());
+
+        return this.ExecuteAsync(async () =>
+        {
+            await using var cmd = this.connection.CreateCommand();
+            var sql = $"SELECT AVG(json_extract(Data, '$.{jsonPath}')) FROM documents WHERE TypeName = @typeName";
+            if (whereInfo.Item1 != null)
+                sql += $" AND ({whereInfo.Item1})";
+            cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            if (whereInfo.Item2 != null)
+                BindDictionaryParameters(cmd, whereInfo.Item2);
+
+            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (result is null or DBNull)
+                return 0d;
+            return Convert.ToDouble(result);
+        }, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<TResult>> Aggregate<T, TResult>(
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class
+    {
+        var (selectClause, groupByClause, projParms) = AggregateTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        return this.ExecuteAsync(async () =>
+        {
+            await using var cmd = this.connection.CreateCommand();
+            var sql = $"SELECT {selectClause} FROM documents WHERE TypeName = @typeName";
+            if (groupByClause != null)
+                sql += $" GROUP BY {groupByClause}";
+            cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, projParms);
+
+            return await ReadListAsync<TResult>(cmd, json => JsonSerializer.Deserialize(json, resultTypeInfo)!, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<TResult>> Aggregate<T, TResult>(
+        Expression<Func<T, bool>> predicate,
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class
+    {
+        var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
+        var (selectClause, groupByClause, projParms) = AggregateTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+        return this.ExecuteAsync(async () =>
+        {
+            await using var cmd = this.connection.CreateCommand();
+            var sql = $"SELECT {selectClause} FROM documents WHERE TypeName = @typeName AND ({whereClause})";
+            if (groupByClause != null)
+                sql += $" GROUP BY {groupByClause}";
+            cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, parms);
+            BindDictionaryParameters(cmd, projParms);
+
+            return await ReadListAsync<TResult>(cmd, json => JsonSerializer.Deserialize(json, resultTypeInfo)!, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
     public Task<int> Count<T>(string? whereClause = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
     {
         return this.ExecuteAsync(async () =>
@@ -1221,6 +1347,120 @@ public class SqliteDocumentStore : IDocumentStore, IDisposable
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 yield return JsonSerializer.Deserialize(reader.GetString(0), resultTypeInfo)!;
+        }
+
+        public Task<TValue> Max<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+            => this.ScalarAggregateAsync<T, TValue>("MAX", selector, null, jsonTypeInfo, cancellationToken);
+
+        public Task<TValue> Max<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+            => this.ScalarAggregateAsync<T, TValue>("MAX", selector, predicate, jsonTypeInfo, cancellationToken);
+
+        public Task<TValue> Min<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+            => this.ScalarAggregateAsync<T, TValue>("MIN", selector, null, jsonTypeInfo, cancellationToken);
+
+        public Task<TValue> Min<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+            => this.ScalarAggregateAsync<T, TValue>("MIN", selector, predicate, jsonTypeInfo, cancellationToken);
+
+        public Task<TValue> Sum<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+            => this.ScalarAggregateAsync<T, TValue>("SUM", selector, null, jsonTypeInfo, cancellationToken);
+
+        public Task<TValue> Sum<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+            => this.ScalarAggregateAsync<T, TValue>("SUM", selector, predicate, jsonTypeInfo, cancellationToken);
+
+        public Task<double> Average<T>(Expression<Func<T, object>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+            => this.ScalarAverageAsync<T>(selector, null, jsonTypeInfo, cancellationToken);
+
+        public Task<double> Average<T>(Expression<Func<T, bool>> predicate, Expression<Func<T, object>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+            => this.ScalarAverageAsync<T>(selector, predicate, jsonTypeInfo, cancellationToken);
+
+        async Task<TValue> ScalarAggregateAsync<T, TValue>(
+            string sqlFunc,
+            Expression<Func<T, TValue>> selector,
+            Expression<Func<T, bool>>? predicate,
+            JsonTypeInfo<T> jsonTypeInfo,
+            CancellationToken cancellationToken) where T : class
+        {
+            var jsonPath = AggregateTranslator.ResolveJsonPathFromSelector(selector, this.jsonOptions, jsonTypeInfo);
+            var whereInfo = predicate != null ? SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo) : ((string?)null, new Dictionary<string, object?>());
+
+            await using var cmd = this.CreateCommand();
+            var sql = $"SELECT {sqlFunc}(json_extract(Data, '$.{jsonPath}')) FROM documents WHERE TypeName = @typeName";
+            if (whereInfo.Item1 != null)
+                sql += $" AND ({whereInfo.Item1})";
+            cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            if (whereInfo.Item2 != null)
+                BindDictionaryParameters(cmd, whereInfo.Item2);
+
+            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (result is null or DBNull)
+                return default!;
+            return (TValue)Convert.ChangeType(result, Nullable.GetUnderlyingType(typeof(TValue)) ?? typeof(TValue));
+        }
+
+        async Task<double> ScalarAverageAsync<T>(
+            Expression<Func<T, object>> selector,
+            Expression<Func<T, bool>>? predicate,
+            JsonTypeInfo<T> jsonTypeInfo,
+            CancellationToken cancellationToken) where T : class
+        {
+            var jsonPath = AggregateTranslator.ResolveJsonPathFromSelector(selector, this.jsonOptions, jsonTypeInfo);
+            var whereInfo = predicate != null ? SqliteJsonExpressionVisitor.Translate(predicate, jsonTypeInfo) : ((string?)null, new Dictionary<string, object?>());
+
+            await using var cmd = this.CreateCommand();
+            var sql = $"SELECT AVG(json_extract(Data, '$.{jsonPath}')) FROM documents WHERE TypeName = @typeName";
+            if (whereInfo.Item1 != null)
+                sql += $" AND ({whereInfo.Item1})";
+            cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            if (whereInfo.Item2 != null)
+                BindDictionaryParameters(cmd, whereInfo.Item2);
+
+            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (result is null or DBNull)
+                return 0d;
+            return Convert.ToDouble(result);
+        }
+
+        public async Task<IReadOnlyList<TResult>> Aggregate<T, TResult>(
+            Expression<Func<T, TResult>> selector,
+            JsonTypeInfo<T> sourceTypeInfo,
+            JsonTypeInfo<TResult> resultTypeInfo,
+            CancellationToken cancellationToken = default)
+            where T : class where TResult : class
+        {
+            var (selectClause, groupByClause, projParms) = AggregateTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            await using var cmd = this.CreateCommand();
+            var sql = $"SELECT {selectClause} FROM documents WHERE TypeName = @typeName";
+            if (groupByClause != null)
+                sql += $" GROUP BY {groupByClause}";
+            cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, projParms);
+
+            return await ReadListAsync<TResult>(cmd, json => JsonSerializer.Deserialize(json, resultTypeInfo)!, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task<IReadOnlyList<TResult>> Aggregate<T, TResult>(
+            Expression<Func<T, bool>> predicate,
+            Expression<Func<T, TResult>> selector,
+            JsonTypeInfo<T> sourceTypeInfo,
+            JsonTypeInfo<TResult> resultTypeInfo,
+            CancellationToken cancellationToken = default)
+            where T : class where TResult : class
+        {
+            var (whereClause, parms) = SqliteJsonExpressionVisitor.Translate(predicate, sourceTypeInfo);
+            var (selectClause, groupByClause, projParms) = AggregateTranslator.Translate(selector, sourceTypeInfo, resultTypeInfo);
+            await using var cmd = this.CreateCommand();
+            var sql = $"SELECT {selectClause} FROM documents WHERE TypeName = @typeName AND ({whereClause})";
+            if (groupByClause != null)
+                sql += $" GROUP BY {groupByClause}";
+            cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+            BindDictionaryParameters(cmd, parms);
+            BindDictionaryParameters(cmd, projParms);
+
+            return await ReadListAsync<TResult>(cmd, json => JsonSerializer.Deserialize(json, resultTypeInfo)!, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<int> Count<T>(string? whereClause = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class

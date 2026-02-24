@@ -52,7 +52,7 @@ static class ProjectionTranslator
         }
 
         throw new NotSupportedException(
-            $"Projection binding expression '{expr}' must be a simple member access or a supported method call (Count, Any).");
+            $"Projection binding expression '{expr}' must be a simple member access or a supported method call (Count, Any, Sum, Min, Max, Average).");
     }
 
     static string TranslateMethodCall(MethodCallExpression node, ParameterExpression parameter, TranslationContext ctx)
@@ -74,9 +74,50 @@ static class ProjectionTranslator
             ("Count", 2) => TranslateCountWithPredicate(node, collectionPath, ctx),
             ("Any", 1) => $"CASE WHEN json_array_length(Data, '$.{collectionPath}') > 0 THEN json('true') ELSE json('false') END",
             ("Any", 2) => TranslateAnyWithPredicate(node, collectionPath, ctx),
+            ("Sum", 1) => TranslateSimpleAggregate("SUM", node, collectionPath, ctx),
+            ("Sum", 2) => TranslateAggregateWithSelector("SUM", node, collectionPath, ctx),
+            ("Min", 1) => TranslateSimpleAggregate("MIN", node, collectionPath, ctx),
+            ("Min", 2) => TranslateAggregateWithSelector("MIN", node, collectionPath, ctx),
+            ("Max", 1) => TranslateSimpleAggregate("MAX", node, collectionPath, ctx),
+            ("Max", 2) => TranslateAggregateWithSelector("MAX", node, collectionPath, ctx),
+            ("Average", 1) => TranslateSimpleAggregate("AVG", node, collectionPath, ctx),
+            ("Average", 2) => TranslateAggregateWithSelector("AVG", node, collectionPath, ctx),
             _ => throw new NotSupportedException(
                 $"Method '{node.Method.Name}' with {node.Arguments.Count} arguments is not supported in projections.")
         };
+    }
+
+    static string TranslateSimpleAggregate(string sqlFunc, MethodCallExpression node, string collectionPath, TranslationContext ctx)
+    {
+        // e.g. o.Lines.Sum() — operates on primitive collection values
+        return $"(SELECT {sqlFunc}(value) FROM json_each(Data, '$.{collectionPath}'))";
+    }
+
+    static string TranslateAggregateWithSelector(string sqlFunc, MethodCallExpression node, string collectionPath, TranslationContext ctx)
+    {
+        // e.g. o.Lines.Sum(l => l.Quantity)
+        var lambda = (LambdaExpression)node.Arguments[1];
+        var collectionType = node.Arguments[0].Type;
+        var elementType = GetCollectionElementType(collectionType);
+        var isPrimitive = IsPrimitiveType(elementType);
+
+        if (isPrimitive)
+        {
+            // Primitive collection with selector — the selector is identity-like, just use value
+            return $"(SELECT {sqlFunc}(value) FROM json_each(Data, '$.{collectionPath}'))";
+        }
+
+        // Complex element: resolve the member chain from the lambda body
+        var selectorBody = lambda.Body;
+        // Unwrap Convert (value-type boxing)
+        if (selectorBody is UnaryExpression { NodeType: ExpressionType.Convert } unary)
+            selectorBody = unary.Operand;
+
+        var memberChain = BuildMemberChain(selectorBody, lambda.Parameters[0]);
+        var elementTypeInfo = ctx.JsonOptions.GetTypeInfo(elementType);
+        var propPath = JsonPropertyNameResolver.BuildJsonPath(ctx.JsonOptions, elementTypeInfo, memberChain);
+
+        return $"(SELECT {sqlFunc}(json_extract(value, '$.{propPath}')) FROM json_each(Data, '$.{collectionPath}'))";
     }
 
     static string TranslateCountWithPredicate(MethodCallExpression node, string collectionPath, TranslationContext ctx)

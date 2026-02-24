@@ -192,6 +192,69 @@ public interface IDocumentStore
         where T : class where TResult : class;
 
     /// <summary>
+    /// Returns the maximum value of a property across all documents of the specified type (AOT-safe).
+    /// </summary>
+    Task<TValue> Max<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Returns the maximum value of a property across documents matching a predicate (AOT-safe).
+    /// </summary>
+    Task<TValue> Max<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Returns the minimum value of a property across all documents of the specified type (AOT-safe).
+    /// </summary>
+    Task<TValue> Min<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Returns the minimum value of a property across documents matching a predicate (AOT-safe).
+    /// </summary>
+    Task<TValue> Min<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Returns the sum of a property across all documents of the specified type (AOT-safe).
+    /// </summary>
+    Task<TValue> Sum<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Returns the sum of a property across documents matching a predicate (AOT-safe).
+    /// </summary>
+    Task<TValue> Sum<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Returns the average of a property across all documents of the specified type (AOT-safe).
+    /// </summary>
+    Task<double> Average<T>(Expression<Func<T, object>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Returns the average of a property across documents matching a predicate (AOT-safe).
+    /// </summary>
+    Task<double> Average<T>(Expression<Func<T, bool>> predicate, Expression<Func<T, object>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Executes an aggregate projection with automatic GROUP BY for non-aggregate columns (AOT-safe).
+    /// Use <see cref="Sql"/> marker methods (Count, Max, Min, Sum, Avg) for aggregate columns.
+    /// Non-aggregate columns are automatically added to the GROUP BY clause.
+    /// </summary>
+    Task<IReadOnlyList<TResult>> Aggregate<T, TResult>(
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class;
+
+    /// <summary>
+    /// Executes an aggregate projection with a predicate filter and automatic GROUP BY (AOT-safe).
+    /// </summary>
+    Task<IReadOnlyList<TResult>> Aggregate<T, TResult>(
+        Expression<Func<T, bool>> predicate,
+        Expression<Func<T, TResult>> selector,
+        JsonTypeInfo<T> sourceTypeInfo,
+        JsonTypeInfo<TResult> resultTypeInfo,
+        CancellationToken cancellationToken = default)
+        where T : class where TResult : class;
+
+    /// <summary>
     /// Counts documents of the specified type, with an optional WHERE filter.
     /// </summary>
     Task<int> Count<T>(string? whereClause = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class;

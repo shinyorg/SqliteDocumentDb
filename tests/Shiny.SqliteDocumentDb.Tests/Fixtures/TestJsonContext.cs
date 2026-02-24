@@ -11,4 +11,7 @@ namespace Shiny.SqliteDocumentDb.Tests.Fixtures;
 [JsonSerializable(typeof(UserSummary))]
 [JsonSerializable(typeof(OrderSummary))]
 [JsonSerializable(typeof(OrderDetail))]
+[JsonSerializable(typeof(OrderLineAggregates))]
+[JsonSerializable(typeof(OrderStats))]
+[JsonSerializable(typeof(PriceSummary))]
 public partial class TestJsonContext : JsonSerializerContext;
