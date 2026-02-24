@@ -28,9 +28,11 @@ public interface IDocumentQuery<T> where T : class
     /// <summary>
     /// Projects each document into a new shape using a server-side SQL projection.
     /// </summary>
+    /// <param name="selector">Expression defining the projection.</param>
+    /// <param name="resultTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
     IDocumentQuery<TResult> Select<TResult>(
         Expression<Func<T, TResult>> selector,
-        JsonTypeInfo<TResult> resultTypeInfo) where TResult : class;
+        JsonTypeInfo<TResult>? resultTypeInfo = null) where TResult : class;
 
     /// <summary>
     /// Materializes all matching documents into a list.

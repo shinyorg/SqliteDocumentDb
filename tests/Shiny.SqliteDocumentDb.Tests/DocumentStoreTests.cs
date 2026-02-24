@@ -1,5 +1,3 @@
-#pragma warning disable IL2026, IL3050 // Reflection-based serialization in tests is fine
-
 using System.Text.Json;
 using Shiny.SqliteDocumentDb.Tests.Fixtures;
 using Xunit;
@@ -452,7 +450,7 @@ public class DocumentStoreResolverTests : IDisposable
 
         var results = await this.store.Query<User>(
             "json_extract(Data, '$.age') > @minAge",
-            new { minAge = 30 });
+            parameters: new { minAge = 30 });
 
         Assert.Single(results);
         Assert.Equal("Bob", results[0].Name);

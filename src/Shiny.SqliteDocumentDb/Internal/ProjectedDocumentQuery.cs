@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
@@ -15,7 +16,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
     readonly List<(Expression<Func<TSource, object>> Selector, bool IsDescending)> orderBys;
     readonly Expression<Func<TSource, object>>? groupBy;
     readonly Expression<Func<TSource, TResult>> selector;
-    readonly JsonTypeInfo<TResult> resultTypeInfo;
+    readonly JsonTypeInfo<TResult>? resultTypeInfo;
 
     internal ProjectedDocumentQuery(
         IQueryExecutor executor,
@@ -24,7 +25,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
         List<(Expression<Func<TSource, object>> Selector, bool IsDescending)> orderBys,
         Expression<Func<TSource, object>>? groupBy,
         Expression<Func<TSource, TResult>> selector,
-        JsonTypeInfo<TResult> resultTypeInfo)
+        JsonTypeInfo<TResult>? resultTypeInfo)
     {
         this.executor = executor;
         this.sourceTypeInfo = sourceTypeInfo;
@@ -49,7 +50,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
 
     public IDocumentQuery<TNewResult> Select<TNewResult>(
         Expression<Func<TResult, TNewResult>> selector,
-        JsonTypeInfo<TNewResult> resultTypeInfo) where TNewResult : class
+        JsonTypeInfo<TNewResult>? resultTypeInfo = null) where TNewResult : class
         => throw new InvalidOperationException("Cannot apply Select twice.");
 
     public Task<IReadOnlyList<TResult>> ToList(CancellationToken ct = default)
@@ -68,7 +69,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
 
             if (useAggregate)
             {
-                var (selectClause, groupByClause, aggParams) = AggregateTranslator.Translate(this.selector, srcTypeInfo, this.resultTypeInfo);
+                var (selectClause, groupByClause, aggParams) = AggregateTranslator.Translate(this.selector, srcTypeInfo, RequireResultTypeInfo());
                 projParams = aggParams;
                 sql = $"SELECT {selectClause} FROM documents WHERE TypeName = @typeName";
                 if (whereClause != null)
@@ -78,7 +79,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
             }
             else
             {
-                var (projection, parms) = ProjectionTranslator.Translate(this.selector, srcTypeInfo, this.resultTypeInfo);
+                var (projection, parms) = ProjectionTranslator.Translate(this.selector, srcTypeInfo, RequireResultTypeInfo());
                 projParams = parms;
                 sql = $"SELECT {projection} FROM documents WHERE TypeName = @typeName";
                 if (whereClause != null)
@@ -93,7 +94,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
             DocumentQuery<TSource>.BindDictionaryParameters(cmd, projParams);
 
             this.executor.Logging?.Invoke(cmd.CommandText);
-            return await DocumentQuery<TSource>.ReadListAsync(cmd, json => JsonSerializer.Deserialize(json, this.resultTypeInfo)!, ct).ConfigureAwait(false);
+            return await DocumentQuery<TSource>.ReadListAsync(cmd, this.DeserializeResult, ct).ConfigureAwait(false);
         }, ct);
     }
 
@@ -111,14 +112,14 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
 
         if (useAggregate)
         {
-            var (selectClause, groupByClause, aggParams) = AggregateTranslator.Translate(this.selector, srcTypeInfo, this.resultTypeInfo);
+            var (selectClause, groupByClause, aggParams) = AggregateTranslator.Translate(this.selector, srcTypeInfo, RequireResultTypeInfo());
             selectSql = selectClause;
             projParams = aggParams;
             groupByStr = groupByClause;
         }
         else
         {
-            var (projection, parms) = ProjectionTranslator.Translate(this.selector, srcTypeInfo, this.resultTypeInfo);
+            var (projection, parms) = ProjectionTranslator.Translate(this.selector, srcTypeInfo, RequireResultTypeInfo());
             selectSql = projection;
             projParams = parms;
         }
@@ -138,7 +139,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
                     DocumentQuery<TSource>.BindDictionaryParameters(cmd, whereParams);
                 DocumentQuery<TSource>.BindDictionaryParameters(cmd, projParams);
             },
-            json => JsonSerializer.Deserialize(json, this.resultTypeInfo)!,
+            this.DeserializeResult,
             ct);
     }
 
@@ -203,10 +204,25 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
     public Task<double> Average(Expression<Func<TResult, object>> selector, CancellationToken ct = default)
         => throw new InvalidOperationException("Aggregate terminals are not supported after Select.");
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Reflection path only used when resultTypeInfo is null (reflection fallback).")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Reflection path only used when resultTypeInfo is null (reflection fallback).")]
+    TResult DeserializeResult(string json)
+    {
+        return this.resultTypeInfo != null
+            ? JsonSerializer.Deserialize(json, this.resultTypeInfo)!
+            : JsonSerializer.Deserialize<TResult>(json, this.executor.JsonOptions)!;
+    }
+
     JsonTypeInfo<TSource> RequireSourceTypeInfo()
     {
         return this.sourceTypeInfo ?? throw new InvalidOperationException(
             $"This operation requires a JsonTypeInfo<{typeof(TSource).Name}>. Use the Query<T>(JsonTypeInfo<T>) overload.");
+    }
+
+    JsonTypeInfo<TResult> RequireResultTypeInfo()
+    {
+        return this.resultTypeInfo ?? throw new InvalidOperationException(
+            $"This operation requires a JsonTypeInfo<{typeof(TResult).Name}>. Pass it to the Select() call.");
     }
 
     (string? WhereClause, Dictionary<string, object?>? Parameters) BuildWhereClause(JsonTypeInfo<TSource> typeInfo)

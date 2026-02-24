@@ -1,5 +1,3 @@
-#pragma warning disable IL2026, IL3050 // Reflection-based serialization in tests is fine
-
 using Shiny.SqliteDocumentDb.Tests.Fixtures;
 using Xunit;
 
@@ -33,7 +31,7 @@ public class QueryTests : IDisposable
 
         var results = await this.store.Query<User>(
             "json_extract(Data, '$.name') = @name",
-            new { name = "Alice" });
+            parameters: new { name = "Alice" });
 
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Name);
@@ -46,7 +44,7 @@ public class QueryTests : IDisposable
 
         var results = await this.store.Query<User>(
             "json_extract(Data, '$.age') > @minAge",
-            new { minAge = 30 });
+            parameters: new { minAge = 30 });
 
         Assert.Single(results);
         Assert.Equal("Bob", results[0].Name);
@@ -59,7 +57,7 @@ public class QueryTests : IDisposable
 
         var results = await this.store.Query<User>(
             "json_extract(Data, '$.age') = @age",
-            new { age = 25 });
+            parameters: new { age = 25 });
 
         Assert.Equal(2, results.Count);
     }
@@ -71,7 +69,7 @@ public class QueryTests : IDisposable
 
         var results = await this.store.Query<User>(
             "json_extract(Data, '$.name') = @name",
-            new { name = "Nobody" });
+            parameters: new { name = "Nobody" });
 
         Assert.Empty(results);
     }
@@ -96,7 +94,7 @@ public class QueryTests : IDisposable
         var parameters = new Dictionary<string, object?> { ["name"] = "Bob" };
         var results = await this.store.Query<User>(
             "json_extract(Data, '$.name') = @name",
-            parameters);
+            parameters: parameters);
 
         Assert.Single(results);
         Assert.Equal("Bob", results[0].Name);
@@ -153,7 +151,7 @@ public class QueryTests : IDisposable
         // query by a nested object property: shippingAddress.city
         var results = await this.store.Query<Order>(
             "json_extract(Data, '$.shippingAddress.city') = @city",
-            new { city = "Portland" });
+            parameters: new { city = "Portland" });
 
         Assert.Equal(2, results.Count);
         Assert.All(results, o => Assert.Equal("Portland", o.ShippingAddress.City));
@@ -167,7 +165,7 @@ public class QueryTests : IDisposable
         // combine top-level + nested filters
         var results = await this.store.Query<Order>(
             "json_extract(Data, '$.status') = @status AND json_extract(Data, '$.shippingAddress.state') = @state",
-            new { status = "Shipped", state = "OR" });
+            parameters: new { status = "Shipped", state = "OR" });
 
         Assert.Equal(2, results.Count);
     }
@@ -180,7 +178,7 @@ public class QueryTests : IDisposable
         // access the first order line by index
         var results = await this.store.Query<Order>(
             "json_extract(Data, '$.lines[0].productName') = @product",
-            new { product = "Widget" });
+            parameters: new { product = "Widget" });
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Alice");
@@ -195,7 +193,7 @@ public class QueryTests : IDisposable
         // orders with more than one line item
         var results = await this.store.Query<Order>(
             "json_array_length(json_extract(Data, '$.lines')) > @minLines",
-            new { minLines = 1 });
+            parameters: new { minLines = 1 });
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Alice");
@@ -210,7 +208,7 @@ public class QueryTests : IDisposable
         // find orders where the tags array contains 'priority' using json_each
         var results = await this.store.Query<Order>(
             "EXISTS (SELECT 1 FROM json_each(Data, '$.tags') WHERE value = @tag)",
-            new { tag = "priority" });
+            parameters: new { tag = "priority" });
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Alice");
@@ -225,7 +223,7 @@ public class QueryTests : IDisposable
         // find orders that contain a line item for 'Gadget' using json_each + json_extract
         var results = await this.store.Query<Order>(
             "EXISTS (SELECT 1 FROM json_each(Data, '$.lines') WHERE json_extract(value, '$.productName') = @product)",
-            new { product = "Gadget" });
+            parameters: new { product = "Gadget" });
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Alice");
@@ -240,7 +238,7 @@ public class QueryTests : IDisposable
         // find orders that have any line item with quantity >= 3
         var results = await this.store.Query<Order>(
             "EXISTS (SELECT 1 FROM json_each(Data, '$.lines') WHERE json_extract(value, '$.quantity') >= @minQty)",
-            new { minQty = 3 });
+            parameters: new { minQty = 3 });
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Bob");     // Widget qty 5

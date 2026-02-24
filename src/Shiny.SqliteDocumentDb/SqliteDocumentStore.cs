@@ -12,8 +12,6 @@ namespace Shiny.SqliteDocumentDb;
 
 public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 {
-    const string ReflectionMessage = "Use the JsonTypeInfo overload for AOT compatibility.";
-
     readonly SemaphoreSlim semaphore = new(1, 1);
     readonly SqliteConnection connection;
     readonly DocumentStoreOptions options;
@@ -36,6 +34,9 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     void Log(string sql) => this.logging?.Invoke(sql);
 
     string ResolveTypeName<T>() => TypeNameResolver.Resolve(typeof(T), this.options.TypeNameResolution);
+
+    JsonTypeInfo<T>? FindTypeInfo<T>(JsonTypeInfo<T>? provided)
+        => FindTypeInfo(provided, this.jsonOptions, this.options.UseReflectionFallback);
 
     async Task EnsureInitializedAsync(CancellationToken ct)
     {
@@ -199,147 +200,66 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     Action<string>? IQueryExecutor.Logging
         => this.logging;
 
-    // ── Query<T>() entry points ─────────────────────────────────────────
+    // ── Query<T>() entry point ──────────────────────────────────────────
 
-    public IDocumentQuery<T> Query<T>(JsonTypeInfo<T> jsonTypeInfo) where T : class
+    public IDocumentQuery<T> Query<T>(JsonTypeInfo<T>? jsonTypeInfo = null) where T : class
     {
-        return new DocumentQuery<T>(this, jsonTypeInfo);
-    }
-
-    [RequiresUnreferencedCode(ReflectionMessage)]
-    [RequiresDynamicCode(ReflectionMessage)]
-    public IDocumentQuery<T> Query<T>() where T : class
-    {
-        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.Query(typeInfo);
-
-        return new DocumentQuery<T>(this, null);
+        return new DocumentQuery<T>(this, FindTypeInfo(jsonTypeInfo));
     }
 
     // ── CRUD ────────────────────────────────────────────────────────────
 
-    [RequiresUnreferencedCode(ReflectionMessage)]
-    [RequiresDynamicCode(ReflectionMessage)]
-    public Task<string> Set<T>(T document, CancellationToken cancellationToken = default) where T : class
+    public Task<string> Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
-        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.Set(document, typeInfo, cancellationToken);
-
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
         return this.ExecuteAsync(async () =>
         {
             var id = Guid.NewGuid().ToString("N");
-            var json = JsonSerializer.Serialize(document, this.jsonOptions);
+            var json = SerializeDocument(document, typeInfo, this.jsonOptions);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
             return id;
         }, cancellationToken);
     }
 
-    public Task<string> Set<T>(T document, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    public Task Set<T>(string id, T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
         return this.ExecuteAsync(async () =>
         {
-            var id = Guid.NewGuid().ToString("N");
-            var json = JsonSerializer.Serialize(document, jsonTypeInfo);
-            await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
-            return id;
-        }, cancellationToken);
-    }
-
-    [RequiresUnreferencedCode(ReflectionMessage)]
-    [RequiresDynamicCode(ReflectionMessage)]
-    public Task Set<T>(string id, T document, CancellationToken cancellationToken = default) where T : class
-    {
-        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.Set(id, document, typeInfo, cancellationToken);
-
-        return this.ExecuteAsync(async () =>
-        {
-            var json = JsonSerializer.Serialize(document, this.jsonOptions);
+            var json = SerializeDocument(document, typeInfo, this.jsonOptions);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
-    public Task Set<T>(string id, T document, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    public Task Upsert<T>(string id, T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
         return this.ExecuteAsync(async () =>
         {
-            var json = JsonSerializer.Serialize(document, jsonTypeInfo);
-            await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
-        }, cancellationToken);
-    }
-
-    [RequiresUnreferencedCode(ReflectionMessage)]
-    [RequiresDynamicCode(ReflectionMessage)]
-    public Task Upsert<T>(string id, T patch, CancellationToken cancellationToken = default) where T : class
-    {
-        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.Upsert(id, patch, typeInfo, cancellationToken);
-
-        return this.ExecuteAsync(async () =>
-        {
-            var json = JsonSerializer.Serialize(patch, this.jsonOptions);
+            var json = SerializeDocument(patch, typeInfo, this.jsonOptions);
             await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
-    public Task Upsert<T>(string id, T patch, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    public Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
-        return this.ExecuteAsync(async () =>
-        {
-            var json = JsonSerializer.Serialize(patch, jsonTypeInfo);
-            await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
-        }, cancellationToken);
-    }
-
-    [RequiresUnreferencedCode(ReflectionMessage)]
-    [RequiresDynamicCode(ReflectionMessage)]
-    public Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, CancellationToken cancellationToken = default) where T : class
-    {
-        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.SetProperty(id, property, value, typeInfo, cancellationToken);
-
-        var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions);
+        var jsonPath = ResolvePropertyPath(property, this.jsonOptions, FindTypeInfo(jsonTypeInfo));
         return this.ExecuteAsync(
             () => this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken),
             cancellationToken);
     }
 
-    public Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    public Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
-        var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, jsonTypeInfo);
-        return this.ExecuteAsync(
-            () => this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken),
-            cancellationToken);
-    }
-
-    [RequiresUnreferencedCode(ReflectionMessage)]
-    [RequiresDynamicCode(ReflectionMessage)]
-    public Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, CancellationToken cancellationToken = default) where T : class
-    {
-        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.RemoveProperty(id, property, typeInfo, cancellationToken);
-
-        var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions);
+        var jsonPath = ResolvePropertyPath(property, this.jsonOptions, FindTypeInfo(jsonTypeInfo));
         return this.ExecuteAsync(
             () => this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken),
             cancellationToken);
     }
 
-    public Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+    public Task<T?> Get<T>(string id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
-        var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, jsonTypeInfo);
-        return this.ExecuteAsync(
-            () => this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken),
-            cancellationToken);
-    }
-
-    [RequiresUnreferencedCode(ReflectionMessage)]
-    [RequiresDynamicCode(ReflectionMessage)]
-    public Task<T?> Get<T>(string id, CancellationToken cancellationToken = default) where T : class
-    {
-        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.Get(id, typeInfo, cancellationToken);
-
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
@@ -350,37 +270,16 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             this.Log(cmd.CommandText);
             var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
             return result is string json
-                ? JsonSerializer.Deserialize<T>(json, this.jsonOptions)
-                : null;
-        }, cancellationToken);
-    }
-
-    public Task<T?> Get<T>(string id, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
-    {
-        return this.ExecuteAsync(async () =>
-        {
-            await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE Id = @id AND TypeName = @typeName;";
-            cmd.Parameters.AddWithValue("@id", id);
-            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
-
-            this.Log(cmd.CommandText);
-            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            return result is string json
-                ? JsonSerializer.Deserialize(json, jsonTypeInfo)
+                ? DeserializeDocument(json, typeInfo, this.jsonOptions)
                 : null;
         }, cancellationToken);
     }
 
     // ── String-based query ──────────────────────────────────────────────
 
-    [RequiresUnreferencedCode(ReflectionMessage)]
-    [RequiresDynamicCode(ReflectionMessage)]
-    public Task<IReadOnlyList<T>> Query<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class
+    public Task<IReadOnlyList<T>> Query<T>(string whereClause, JsonTypeInfo<T>? jsonTypeInfo = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
     {
-        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.Query(whereClause, typeInfo, parameters, cancellationToken);
-
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
@@ -389,21 +288,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             BindParameters(cmd, parameters);
 
             this.Log(cmd.CommandText);
-            return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize<T>(json, this.jsonOptions)!, cancellationToken).ConfigureAwait(false);
-        }, cancellationToken);
-    }
-
-    public Task<IReadOnlyList<T>> Query<T>(string whereClause, JsonTypeInfo<T> jsonTypeInfo, object? parameters = null, CancellationToken cancellationToken = default) where T : class
-    {
-        return this.ExecuteAsync(async () =>
-        {
-            await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
-            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
-            BindParameters(cmd, parameters);
-
-            this.Log(cmd.CommandText);
-            return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
+            return await ReadListAsync<T>(cmd, json => DeserializeDocument(json, typeInfo, this.jsonOptions)!, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
@@ -436,13 +321,9 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         }
     }
 
-    [RequiresUnreferencedCode(ReflectionMessage)]
-    [RequiresDynamicCode(ReflectionMessage)]
-    public IAsyncEnumerable<T> QueryStream<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class
+    public IAsyncEnumerable<T> QueryStream<T>(string whereClause, JsonTypeInfo<T>? jsonTypeInfo = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
     {
-        if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            return this.QueryStream(whereClause, typeInfo, parameters, cancellationToken);
-
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
         var typeName = this.ResolveTypeName<T>();
         return this.ReadStreamAsync<T>(
             cmd =>
@@ -451,21 +332,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                 cmd.Parameters.AddWithValue("@typeName", typeName);
                 BindParameters(cmd, parameters);
             },
-            json => JsonSerializer.Deserialize<T>(json, this.jsonOptions)!,
-            cancellationToken);
-    }
-
-    public IAsyncEnumerable<T> QueryStream<T>(string whereClause, JsonTypeInfo<T> jsonTypeInfo, object? parameters = null, CancellationToken cancellationToken = default) where T : class
-    {
-        var typeName = this.ResolveTypeName<T>();
-        return this.ReadStreamAsync<T>(
-            cmd =>
-            {
-                cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
-                cmd.Parameters.AddWithValue("@typeName", typeName);
-                BindParameters(cmd, parameters);
-            },
-            json => JsonSerializer.Deserialize(json, jsonTypeInfo)!,
+            json => DeserializeDocument(json, typeInfo, this.jsonOptions)!,
             cancellationToken);
     }
 
@@ -602,22 +469,38 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     // ── Static helpers ──────────────────────────────────────────────────
 
-    static bool TryGetTypeInfo<T>(JsonSerializerOptions options, bool useReflectionFallback, [NotNullWhen(true)] out JsonTypeInfo<T>? typeInfo)
+    static JsonTypeInfo<T>? FindTypeInfo<T>(JsonTypeInfo<T>? provided, JsonSerializerOptions options, bool useReflectionFallback)
     {
+        if (provided != null)
+            return provided;
+
         if (options.TryGetTypeInfo(typeof(T), out var info) && info is JsonTypeInfo<T> typed)
-        {
-            typeInfo = typed;
-            return true;
-        }
+            return typed;
 
         if (!useReflectionFallback)
             throw new InvalidOperationException(
                 $"No JsonTypeInfo registered for type '{typeof(T).FullName}'. " +
                 $"Register it in your JsonSerializerContext or pass a JsonTypeInfo<{typeof(T).Name}> explicitly.");
 
-        typeInfo = null;
-        return false;
+        return null;
     }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Reflection path only used when typeInfo is null (reflection fallback).")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Reflection path only used when typeInfo is null (reflection fallback).")]
+    static string SerializeDocument<T>(T value, JsonTypeInfo<T>? typeInfo, JsonSerializerOptions options)
+        => typeInfo != null ? JsonSerializer.Serialize(value, typeInfo) : JsonSerializer.Serialize(value, options);
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Reflection path only used when typeInfo is null (reflection fallback).")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Reflection path only used when typeInfo is null (reflection fallback).")]
+    static T? DeserializeDocument<T>(string json, JsonTypeInfo<T>? typeInfo, JsonSerializerOptions options)
+        => typeInfo != null ? JsonSerializer.Deserialize(json, typeInfo) : JsonSerializer.Deserialize<T>(json, options);
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Reflection path only used when typeInfo is null (reflection fallback).")]
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Reflection path only used when typeInfo is null (reflection fallback).")]
+    static string ResolvePropertyPath<T>(Expression<Func<T, object>> property, JsonSerializerOptions options, JsonTypeInfo<T>? typeInfo)
+        => typeInfo != null
+            ? IndexExpressionHelper.ResolveJsonPath(property, options, typeInfo)
+            : IndexExpressionHelper.ResolveJsonPath(property, options);
 
     [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Parameter binding via reflection is intentional; dictionary overload available for AOT.")]
     static void BindParameters(SqliteCommand cmd, object? parameters)
@@ -721,6 +604,9 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
         string ResolveTypeName<T>() => TypeNameResolver.Resolve(typeof(T), this.options.TypeNameResolution);
 
+        JsonTypeInfo<T>? FindTypeInfo<T>(JsonTypeInfo<T>? provided)
+            => SqliteDocumentStore.FindTypeInfo(provided, this.jsonOptions, this.options.UseReflectionFallback);
+
         SqliteCommand CreateCommand()
         {
             var cmd = this.connection.CreateCommand();
@@ -759,19 +645,9 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
         // ── Query<T>() ─────────────────────────────────────────────────
 
-        public IDocumentQuery<T> Query<T>(JsonTypeInfo<T> jsonTypeInfo) where T : class
+        public IDocumentQuery<T> Query<T>(JsonTypeInfo<T>? jsonTypeInfo = null) where T : class
         {
-            return new DocumentQuery<T>(this, jsonTypeInfo);
-        }
-
-        [RequiresUnreferencedCode(ReflectionMessage)]
-        [RequiresDynamicCode(ReflectionMessage)]
-        public IDocumentQuery<T> Query<T>() where T : class
-        {
-            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-                return this.Query(typeInfo);
-
-            return new DocumentQuery<T>(this, null);
+            return new DocumentQuery<T>(this, FindTypeInfo(jsonTypeInfo));
         }
 
         // ── CRUD ────────────────────────────────────────────────────────
@@ -852,108 +728,44 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             return rows > 0;
         }
 
-        [RequiresUnreferencedCode(ReflectionMessage)]
-        [RequiresDynamicCode(ReflectionMessage)]
-        public async Task<string> Set<T>(T document, CancellationToken cancellationToken = default) where T : class
+        public async Task<string> Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-                return await this.Set(document, typeInfo, cancellationToken).ConfigureAwait(false);
-
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
             var id = Guid.NewGuid().ToString("N");
-            var json = JsonSerializer.Serialize(document, this.jsonOptions);
+            var json = SerializeDocument(document, typeInfo, this.jsonOptions);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
             return id;
         }
 
-        public async Task<string> Set<T>(T document, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        public async Task Set<T>(string id, T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var id = Guid.NewGuid().ToString("N");
-            var json = JsonSerializer.Serialize(document, jsonTypeInfo);
-            await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
-            return id;
-        }
-
-        [RequiresUnreferencedCode(ReflectionMessage)]
-        [RequiresDynamicCode(ReflectionMessage)]
-        public async Task Set<T>(string id, T document, CancellationToken cancellationToken = default) where T : class
-        {
-            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            {
-                await this.Set(id, document, typeInfo, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            var json = JsonSerializer.Serialize(document, this.jsonOptions);
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var json = SerializeDocument(document, typeInfo, this.jsonOptions);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task Set<T>(string id, T document, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        public async Task Upsert<T>(string id, T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var json = JsonSerializer.Serialize(document, jsonTypeInfo);
-            await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
-        }
-
-        [RequiresUnreferencedCode(ReflectionMessage)]
-        [RequiresDynamicCode(ReflectionMessage)]
-        public async Task Upsert<T>(string id, T patch, CancellationToken cancellationToken = default) where T : class
-        {
-            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            {
-                await this.Upsert(id, patch, typeInfo, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            var json = JsonSerializer.Serialize(patch, this.jsonOptions);
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var json = SerializeDocument(patch, typeInfo, this.jsonOptions);
             await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task Upsert<T>(string id, T patch, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        public async Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var json = JsonSerializer.Serialize(patch, jsonTypeInfo);
-            await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
-        }
-
-        [RequiresUnreferencedCode(ReflectionMessage)]
-        [RequiresDynamicCode(ReflectionMessage)]
-        public async Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, CancellationToken cancellationToken = default) where T : class
-        {
-            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-                return await this.SetProperty(id, property, value, typeInfo, cancellationToken).ConfigureAwait(false);
-
-            var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions);
+            var jsonPath = ResolvePropertyPath(property, this.jsonOptions, FindTypeInfo(jsonTypeInfo));
             return await this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        public async Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, jsonTypeInfo);
-            return await this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken).ConfigureAwait(false);
-        }
-
-        [RequiresUnreferencedCode(ReflectionMessage)]
-        [RequiresDynamicCode(ReflectionMessage)]
-        public async Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, CancellationToken cancellationToken = default) where T : class
-        {
-            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-                return await this.RemoveProperty(id, property, typeInfo, cancellationToken).ConfigureAwait(false);
-
-            var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions);
+            var jsonPath = ResolvePropertyPath(property, this.jsonOptions, FindTypeInfo(jsonTypeInfo));
             return await this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
+        public async Task<T?> Get<T>(string id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, jsonTypeInfo);
-            return await this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken).ConfigureAwait(false);
-        }
-
-        [RequiresUnreferencedCode(ReflectionMessage)]
-        [RequiresDynamicCode(ReflectionMessage)]
-        public async Task<T?> Get<T>(string id, CancellationToken cancellationToken = default) where T : class
-        {
-            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-                return await this.Get(id, typeInfo, cancellationToken).ConfigureAwait(false);
-
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
             await using var cmd = this.CreateCommand();
             cmd.CommandText = "SELECT Data FROM documents WHERE Id = @id AND TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@id", id);
@@ -962,64 +774,28 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             this.Log(cmd.CommandText);
             var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
             return result is string json
-                ? JsonSerializer.Deserialize<T>(json, this.jsonOptions)
-                : null;
-        }
-
-        public async Task<T?> Get<T>(string id, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class
-        {
-            await using var cmd = this.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE Id = @id AND TypeName = @typeName;";
-            cmd.Parameters.AddWithValue("@id", id);
-            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
-
-            this.Log(cmd.CommandText);
-            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            return result is string json
-                ? JsonSerializer.Deserialize(json, jsonTypeInfo)
+                ? DeserializeDocument(json, typeInfo, this.jsonOptions)
                 : null;
         }
 
         // ── String-based query ──────────────────────────────────────────
 
-        [RequiresUnreferencedCode(ReflectionMessage)]
-        [RequiresDynamicCode(ReflectionMessage)]
-        public async Task<IReadOnlyList<T>> Query<T>(string whereClause, object? parameters = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<IReadOnlyList<T>> Query<T>(string whereClause, JsonTypeInfo<T>? jsonTypeInfo = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
         {
-            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-                return await this.Query(whereClause, typeInfo, parameters, cancellationToken).ConfigureAwait(false);
-
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
             await using var cmd = this.CreateCommand();
             cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindParameters(cmd, parameters);
             this.Log(cmd.CommandText);
-            return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize<T>(json, this.jsonOptions)!, cancellationToken).ConfigureAwait(false);
-        }
-
-        public async Task<IReadOnlyList<T>> Query<T>(string whereClause, JsonTypeInfo<T> jsonTypeInfo, object? parameters = null, CancellationToken cancellationToken = default) where T : class
-        {
-            await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
-            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
-            BindParameters(cmd, parameters);
-            this.Log(cmd.CommandText);
-            return await ReadListAsync<T>(cmd, json => JsonSerializer.Deserialize(json, jsonTypeInfo)!, cancellationToken).ConfigureAwait(false);
+            return await ReadListAsync<T>(cmd, json => DeserializeDocument(json, typeInfo, this.jsonOptions)!, cancellationToken).ConfigureAwait(false);
         }
 
         // ── String-based streaming ──────────────────────────────────────
 
-        [RequiresUnreferencedCode(ReflectionMessage)]
-        [RequiresDynamicCode(ReflectionMessage)]
-        public async IAsyncEnumerable<T> QueryStream<T>(string whereClause, object? parameters = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
+        public async IAsyncEnumerable<T> QueryStream<T>(string whereClause, JsonTypeInfo<T>? jsonTypeInfo = null, object? parameters = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
         {
-            if (TryGetTypeInfo<T>(this.jsonOptions, this.options.UseReflectionFallback, out var typeInfo))
-            {
-                await foreach (var item in this.QueryStream(whereClause, typeInfo, parameters, cancellationToken).ConfigureAwait(false))
-                    yield return item;
-                yield break;
-            }
-
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
             await using var cmd = this.CreateCommand();
             cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
@@ -1028,20 +804,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             this.Log(cmd.CommandText);
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                yield return JsonSerializer.Deserialize<T>(reader.GetString(0), this.jsonOptions)!;
-        }
-
-        public async IAsyncEnumerable<T> QueryStream<T>(string whereClause, JsonTypeInfo<T> jsonTypeInfo, object? parameters = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
-        {
-            await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
-            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
-            BindParameters(cmd, parameters);
-
-            this.Log(cmd.CommandText);
-            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                yield return JsonSerializer.Deserialize(reader.GetString(0), jsonTypeInfo)!;
+                yield return DeserializeDocument(reader.GetString(0), typeInfo, this.jsonOptions)!;
         }
 
         // ── Count / Remove / Clear ──────────────────────────────────────

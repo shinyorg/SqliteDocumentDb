@@ -48,7 +48,7 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
 
     public IDocumentQuery<TResult> Select<TResult>(
         Expression<Func<T, TResult>> selector,
-        JsonTypeInfo<TResult> resultTypeInfo) where TResult : class
+        JsonTypeInfo<TResult>? resultTypeInfo = null) where TResult : class
     {
         return new ProjectedDocumentQuery<T, TResult>(
             this.executor,
