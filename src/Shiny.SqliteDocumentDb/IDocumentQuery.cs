@@ -26,6 +26,13 @@ public interface IDocumentQuery<T> where T : class
     IDocumentQuery<T> GroupBy(Expression<Func<T, object>> selector);
 
     /// <summary>
+    /// Limits results to the specified page. Translates to SQL LIMIT/OFFSET.
+    /// </summary>
+    /// <param name="offset">Number of rows to skip.</param>
+    /// <param name="take">Maximum number of rows to return.</param>
+    IDocumentQuery<T> Paginate(int offset, int take);
+
+    /// <summary>
     /// Projects each document into a new shape using a server-side SQL projection.
     /// </summary>
     /// <param name="selector">Expression defining the projection.</param>

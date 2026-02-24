@@ -17,6 +17,8 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
     readonly Expression<Func<TSource, object>>? groupBy;
     readonly Expression<Func<TSource, TResult>> selector;
     readonly JsonTypeInfo<TResult>? resultTypeInfo;
+    readonly int? paginateOffset;
+    readonly int? paginateTake;
 
     internal ProjectedDocumentQuery(
         IQueryExecutor executor,
@@ -25,7 +27,9 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
         List<(Expression<Func<TSource, object>> Selector, bool IsDescending)> orderBys,
         Expression<Func<TSource, object>>? groupBy,
         Expression<Func<TSource, TResult>> selector,
-        JsonTypeInfo<TResult>? resultTypeInfo)
+        JsonTypeInfo<TResult>? resultTypeInfo,
+        int? paginateOffset,
+        int? paginateTake)
     {
         this.executor = executor;
         this.sourceTypeInfo = sourceTypeInfo;
@@ -34,6 +38,8 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
         this.groupBy = groupBy;
         this.selector = selector;
         this.resultTypeInfo = resultTypeInfo;
+        this.paginateOffset = paginateOffset;
+        this.paginateTake = paginateTake;
     }
 
     public IDocumentQuery<TResult> Where(Expression<Func<TResult, bool>> predicate)
@@ -48,6 +54,9 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
     public IDocumentQuery<TResult> GroupBy(Expression<Func<TResult, object>> selector)
         => throw new InvalidOperationException("Cannot modify query after Select.");
 
+    public IDocumentQuery<TResult> Paginate(int offset, int take)
+        => throw new InvalidOperationException("Cannot modify query after Select.");
+
     public IDocumentQuery<TNewResult> Select<TNewResult>(
         Expression<Func<TResult, TNewResult>> selector,
         JsonTypeInfo<TNewResult>? resultTypeInfo = null) where TNewResult : class
@@ -58,6 +67,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
         var srcTypeInfo = RequireSourceTypeInfo();
         var (whereClause, whereParams) = BuildWhereClause(srcTypeInfo);
         var orderByClause = BuildOrderByClause(srcTypeInfo);
+        var paginationClause = BuildPaginationClause();
         var typeName = this.executor.ResolveTypeName<TSource>();
         var useAggregate = ContainsSqlAggregates(this.selector.Body) || this.groupBy != null;
 
@@ -86,7 +96,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
                     sql += $" AND ({whereClause})";
             }
 
-            sql += orderByClause + ";";
+            sql += orderByClause + paginationClause + ";";
             cmd.CommandText = sql;
             cmd.Parameters.AddWithValue("@typeName", typeName);
             if (whereParams != null)
@@ -103,6 +113,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
         var srcTypeInfo = RequireSourceTypeInfo();
         var (whereClause, whereParams) = BuildWhereClause(srcTypeInfo);
         var orderByClause = BuildOrderByClause(srcTypeInfo);
+        var paginationClause = BuildPaginationClause();
         var typeName = this.executor.ResolveTypeName<TSource>();
         var useAggregate = ContainsSqlAggregates(this.selector.Body) || this.groupBy != null;
 
@@ -132,7 +143,7 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
                     sql += $" AND ({whereClause})";
                 if (groupByStr != null)
                     sql += $" GROUP BY {groupByStr}";
-                sql += orderByClause + ";";
+                sql += orderByClause + paginationClause + ";";
                 cmd.CommandText = sql;
                 cmd.Parameters.AddWithValue("@typeName", typeName);
                 if (whereParams != null)
@@ -233,6 +244,14 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
         var combined = DocumentQuery<TSource>.CombinePredicates(this.wheres);
         var (clause, parms) = SqliteJsonExpressionVisitor.Translate(combined, typeInfo);
         return (clause, parms);
+    }
+
+    string BuildPaginationClause()
+    {
+        if (this.paginateTake == null)
+            return "";
+
+        return $" LIMIT {this.paginateTake.Value} OFFSET {this.paginateOffset!.Value}";
     }
 
     string BuildOrderByClause(JsonTypeInfo<TSource> typeInfo)

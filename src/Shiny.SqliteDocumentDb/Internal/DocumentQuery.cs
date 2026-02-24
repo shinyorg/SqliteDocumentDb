@@ -14,6 +14,8 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
     readonly List<Expression<Func<T, bool>>> wheres = [];
     readonly List<(Expression<Func<T, object>> Selector, bool IsDescending)> orderBys = [];
     Expression<Func<T, object>>? groupBy;
+    int? paginateOffset;
+    int? paginateTake;
 
     internal DocumentQuery(IQueryExecutor executor, JsonTypeInfo<T>? jsonTypeInfo)
     {
@@ -46,6 +48,13 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
         return this;
     }
 
+    public IDocumentQuery<T> Paginate(int offset, int take)
+    {
+        this.paginateOffset = offset;
+        this.paginateTake = take;
+        return this;
+    }
+
     public IDocumentQuery<TResult> Select<TResult>(
         Expression<Func<T, TResult>> selector,
         JsonTypeInfo<TResult>? resultTypeInfo = null) where TResult : class
@@ -57,13 +66,16 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
             this.orderBys,
             this.groupBy,
             selector,
-            resultTypeInfo);
+            resultTypeInfo,
+            this.paginateOffset,
+            this.paginateTake);
     }
 
     public Task<IReadOnlyList<T>> ToList(CancellationToken ct = default)
     {
         var (whereClause, whereParams) = BuildWhereClause();
         var orderByClause = BuildOrderByClause();
+        var paginationClause = BuildPaginationClause();
         var typeName = this.executor.ResolveTypeName<T>();
 
         return this.executor.ExecuteAsync(async () =>
@@ -72,7 +84,7 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
             var sql = "SELECT Data FROM documents WHERE TypeName = @typeName";
             if (whereClause != null)
                 sql += $" AND ({whereClause})";
-            sql += orderByClause + ";";
+            sql += orderByClause + paginationClause + ";";
             cmd.CommandText = sql;
             cmd.Parameters.AddWithValue("@typeName", typeName);
             if (whereParams != null)
@@ -87,6 +99,7 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
     {
         var (whereClause, whereParams) = BuildWhereClause();
         var orderByClause = BuildOrderByClause();
+        var paginationClause = BuildPaginationClause();
         var typeName = this.executor.ResolveTypeName<T>();
 
         return this.executor.ReadStreamAsync<T>(
@@ -95,7 +108,7 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
                 var sql = "SELECT Data FROM documents WHERE TypeName = @typeName";
                 if (whereClause != null)
                     sql += $" AND ({whereClause})";
-                sql += orderByClause + ";";
+                sql += orderByClause + paginationClause + ";";
                 cmd.CommandText = sql;
                 cmd.Parameters.AddWithValue("@typeName", typeName);
                 if (whereParams != null)
@@ -246,6 +259,14 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
         var combined = CombinePredicates(this.wheres);
         var (clause, parms) = SqliteJsonExpressionVisitor.Translate(combined, typeInfo);
         return (clause, parms);
+    }
+
+    string BuildPaginationClause()
+    {
+        if (this.paginateTake == null)
+            return "";
+
+        return $" LIMIT {this.paginateTake.Value} OFFSET {this.paginateOffset!.Value}";
     }
 
     string BuildOrderByClause()
