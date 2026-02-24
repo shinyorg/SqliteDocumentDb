@@ -21,4 +21,10 @@ public class DocumentStoreOptions
     /// Defaults to true.
     /// </summary>
     public bool UseReflectionFallback { get; set; } = true;
+
+    /// <summary>
+    /// Optional callback invoked with every SQL statement the store executes.
+    /// Useful for debugging and diagnostics.
+    /// </summary>
+    public Action<string>? Logging { get; set; }
 }

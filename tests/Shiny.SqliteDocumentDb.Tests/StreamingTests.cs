@@ -64,11 +64,11 @@ public class StreamingTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAllStream_ReturnsAllItems()
+    public async Task Stream_ReturnsAllItems()
     {
         await this.SeedUsersAsync();
 
-        var results = await ToListAsync(this.store.GetAllStream<User>(ctx.User));
+        var results = await ToListAsync(this.store.Query(ctx.User).ToAsyncEnumerable());
 
         Assert.Equal(3, results.Count);
         Assert.Contains(results, u => u.Name == "Alice");
@@ -77,15 +77,16 @@ public class StreamingTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAllStream_Projection()
+    public async Task Stream_Projection()
     {
         await this.SeedOrdersAsync();
 
         var results = await ToListAsync(
-            this.store.GetAllStream<Order, OrderSummary>(
-                o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
-                ctx.Order,
-                ctx.OrderSummary));
+            this.store.Query(ctx.Order)
+                .Select(
+                    o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
+                    ctx.OrderSummary)
+                .ToAsyncEnumerable());
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, s => s.Customer == "Alice" && s.City == "Portland");
@@ -93,12 +94,12 @@ public class StreamingTests : IDisposable
     }
 
     [Fact]
-    public async Task QueryStream_Expression()
+    public async Task Stream_Where()
     {
         await this.SeedUsersAsync();
 
         var results = await ToListAsync(
-            this.store.QueryStream<User>(u => u.Age == 25, ctx.User));
+            this.store.Query(ctx.User).Where(u => u.Age == 25).ToAsyncEnumerable());
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, u => u.Name == "Alice");
@@ -106,7 +107,7 @@ public class StreamingTests : IDisposable
     }
 
     [Fact]
-    public async Task QueryStream_RawSql()
+    public async Task Stream_RawSql()
     {
         await this.SeedUsersAsync();
 
@@ -121,16 +122,17 @@ public class StreamingTests : IDisposable
     }
 
     [Fact]
-    public async Task QueryStream_ExpressionProjection()
+    public async Task Stream_Where_Projection()
     {
         await this.SeedOrdersAsync();
 
         var results = await ToListAsync(
-            this.store.QueryStream<Order, OrderSummary>(
-                o => o.Status == "Shipped",
-                o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
-                ctx.Order,
-                ctx.OrderSummary));
+            this.store.Query(ctx.Order)
+                .Where(o => o.Status == "Shipped")
+                .Select(
+                    o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
+                    ctx.OrderSummary)
+                .ToAsyncEnumerable());
 
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Customer);
@@ -138,22 +140,22 @@ public class StreamingTests : IDisposable
     }
 
     [Fact]
-    public async Task QueryStream_EmptyResult()
+    public async Task Stream_EmptyResult()
     {
         await this.SeedUsersAsync();
 
         var results = await ToListAsync(
-            this.store.QueryStream<User>(u => u.Name == "Nobody", ctx.User));
+            this.store.Query(ctx.User).Where(u => u.Name == "Nobody").ToAsyncEnumerable());
 
         Assert.Empty(results);
     }
 
     [Fact]
-    public async Task GetAllStream_NestedObjects()
+    public async Task Stream_NestedObjects()
     {
         await this.SeedOrdersAsync();
 
-        var results = await ToListAsync(this.store.GetAllStream<Order>(ctx.Order));
+        var results = await ToListAsync(this.store.Query(ctx.Order).ToAsyncEnumerable());
 
         Assert.Equal(2, results.Count);
 

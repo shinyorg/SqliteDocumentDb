@@ -1,12 +1,23 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
-using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization.Metadata;
 
 namespace Shiny.SqliteDocumentDb;
 
 public interface IDocumentStore
 {
+    /// <summary>
+    /// Returns a fluent query builder for the specified type (AOT-safe).
+    /// </summary>
+    IDocumentQuery<T> Query<T>(JsonTypeInfo<T> jsonTypeInfo) where T : class;
+
+    /// <summary>
+    /// Returns a fluent query builder for the specified type.
+    /// </summary>
+    [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
+    IDocumentQuery<T> Query<T>() where T : class;
+
     /// <summary>
     /// Upserts a document with an auto-generated GUID key.
     /// </summary>
@@ -88,30 +99,6 @@ public interface IDocumentStore
     Task<T?> Get<T>(string id, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
-    /// Gets all documents of the specified type.
-    /// </summary>
-    [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
-    [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
-    Task<IReadOnlyList<T>> GetAll<T>(OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Gets all documents of the specified type (AOT-safe).
-    /// </summary>
-    Task<IReadOnlyList<T>> GetAll<T>(JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Gets all documents of the specified type, projected to a different type at the SQL level (AOT-safe).
-    /// Only the fields referenced in the selector are extracted from the stored JSON.
-    /// </summary>
-    Task<IReadOnlyList<TResult>> GetAll<T, TResult>(
-        Expression<Func<T, TResult>> selector,
-        JsonTypeInfo<T> sourceTypeInfo,
-        JsonTypeInfo<TResult> resultTypeInfo,
-        OrderBy<T>? orderBy = null,
-        CancellationToken cancellationToken = default)
-        where T : class where TResult : class;
-
-    /// <summary>
     /// Queries documents using a SQL WHERE clause fragment with json_extract.
     /// </summary>
     /// <param name="whereClause">SQL WHERE clause, e.g. "json_extract(Data, '$.Name') = @name"</param>
@@ -126,47 +113,6 @@ public interface IDocumentStore
     Task<IReadOnlyList<T>> Query<T>(string whereClause, JsonTypeInfo<T> jsonTypeInfo, object? parameters = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
-    /// Queries documents using a LINQ expression predicate (AOT-safe).
-    /// </summary>
-    Task<IReadOnlyList<T>> Query<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Queries documents using a LINQ expression predicate and projects to a different type at the SQL level (AOT-safe).
-    /// Only the fields referenced in the selector are extracted from the stored JSON.
-    /// </summary>
-    Task<IReadOnlyList<TResult>> Query<T, TResult>(
-        Expression<Func<T, bool>> predicate,
-        Expression<Func<T, TResult>> selector,
-        JsonTypeInfo<T> sourceTypeInfo,
-        JsonTypeInfo<TResult> resultTypeInfo,
-        OrderBy<T>? orderBy = null,
-        CancellationToken cancellationToken = default)
-        where T : class where TResult : class;
-
-    /// <summary>
-    /// Streams all documents of the specified type one-at-a-time.
-    /// </summary>
-    [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
-    [RequiresDynamicCode("Use the JsonTypeInfo overload for AOT compatibility.")]
-    IAsyncEnumerable<T> GetAllStream<T>(OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Streams all documents of the specified type one-at-a-time (AOT-safe).
-    /// </summary>
-    IAsyncEnumerable<T> GetAllStream<T>(JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Streams all documents of the specified type, projected to a different type at the SQL level (AOT-safe).
-    /// </summary>
-    IAsyncEnumerable<TResult> GetAllStream<T, TResult>(
-        Expression<Func<T, TResult>> selector,
-        JsonTypeInfo<T> sourceTypeInfo,
-        JsonTypeInfo<TResult> resultTypeInfo,
-        OrderBy<T>? orderBy = null,
-        CancellationToken cancellationToken = default)
-        where T : class where TResult : class;
-
-    /// <summary>
     /// Streams documents matching a SQL WHERE clause fragment one-at-a-time.
     /// </summary>
     [RequiresUnreferencedCode("Use the JsonTypeInfo overload for AOT compatibility.")]
@@ -179,106 +125,15 @@ public interface IDocumentStore
     IAsyncEnumerable<T> QueryStream<T>(string whereClause, JsonTypeInfo<T> jsonTypeInfo, object? parameters = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
-    /// Streams documents matching a LINQ expression predicate one-at-a-time (AOT-safe).
-    /// </summary>
-    IAsyncEnumerable<T> QueryStream<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, OrderBy<T>? orderBy = null, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Streams documents matching a LINQ expression predicate, projected to a different type at the SQL level (AOT-safe).
-    /// </summary>
-    IAsyncEnumerable<TResult> QueryStream<T, TResult>(
-        Expression<Func<T, bool>> predicate,
-        Expression<Func<T, TResult>> selector,
-        JsonTypeInfo<T> sourceTypeInfo,
-        JsonTypeInfo<TResult> resultTypeInfo,
-        OrderBy<T>? orderBy = null,
-        CancellationToken cancellationToken = default)
-        where T : class where TResult : class;
-
-    /// <summary>
-    /// Returns the maximum value of a property across all documents of the specified type (AOT-safe).
-    /// </summary>
-    Task<TValue> Max<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Returns the maximum value of a property across documents matching a predicate (AOT-safe).
-    /// </summary>
-    Task<TValue> Max<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Returns the minimum value of a property across all documents of the specified type (AOT-safe).
-    /// </summary>
-    Task<TValue> Min<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Returns the minimum value of a property across documents matching a predicate (AOT-safe).
-    /// </summary>
-    Task<TValue> Min<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Returns the sum of a property across all documents of the specified type (AOT-safe).
-    /// </summary>
-    Task<TValue> Sum<T, TValue>(Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Returns the sum of a property across documents matching a predicate (AOT-safe).
-    /// </summary>
-    Task<TValue> Sum<T, TValue>(Expression<Func<T, bool>> predicate, Expression<Func<T, TValue>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Returns the average of a property across all documents of the specified type (AOT-safe).
-    /// </summary>
-    Task<double> Average<T>(Expression<Func<T, object>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Returns the average of a property across documents matching a predicate (AOT-safe).
-    /// </summary>
-    Task<double> Average<T>(Expression<Func<T, bool>> predicate, Expression<Func<T, object>> selector, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Executes an aggregate projection with automatic GROUP BY for non-aggregate columns (AOT-safe).
-    /// Use <see cref="Sql"/> marker methods (Count, Max, Min, Sum, Avg) for aggregate columns.
-    /// Non-aggregate columns are automatically added to the GROUP BY clause.
-    /// </summary>
-    Task<IReadOnlyList<TResult>> Aggregate<T, TResult>(
-        Expression<Func<T, TResult>> selector,
-        JsonTypeInfo<T> sourceTypeInfo,
-        JsonTypeInfo<TResult> resultTypeInfo,
-        CancellationToken cancellationToken = default)
-        where T : class where TResult : class;
-
-    /// <summary>
-    /// Executes an aggregate projection with a predicate filter and automatic GROUP BY (AOT-safe).
-    /// </summary>
-    Task<IReadOnlyList<TResult>> Aggregate<T, TResult>(
-        Expression<Func<T, bool>> predicate,
-        Expression<Func<T, TResult>> selector,
-        JsonTypeInfo<T> sourceTypeInfo,
-        JsonTypeInfo<TResult> resultTypeInfo,
-        CancellationToken cancellationToken = default)
-        where T : class where TResult : class;
-
-    /// <summary>
     /// Counts documents of the specified type, with an optional WHERE filter.
     /// </summary>
     Task<int> Count<T>(string? whereClause = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Counts documents using a LINQ expression predicate (AOT-safe).
-    /// </summary>
-    Task<int> Count<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Removes a document by ID.
     /// </summary>
     /// <returns>True if a document was deleted.</returns>
     Task<bool> Remove<T>(string id, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Removes documents matching a LINQ expression predicate (AOT-safe).
-    /// </summary>
-    /// <returns>The number of documents deleted.</returns>
-    Task<int> Remove<T>(Expression<Func<T, bool>> predicate, JsonTypeInfo<T> jsonTypeInfo, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Removes all documents of the specified type.

@@ -75,11 +75,12 @@ public class ProjectionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User, UserSummary>(
-            u => u.Age == 25,
-            u => new UserSummary { Name = u.Name, Email = u.Email },
-            ctx.User,
-            ctx.UserSummary);
+        var results = await this.store.Query(ctx.User)
+            .Where(u => u.Age == 25)
+            .Select(
+                u => new UserSummary { Name = u.Name, Email = u.Email },
+                ctx.UserSummary)
+            .ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, r => r.Name == "Alice" && r.Email == "alice@test.com");
@@ -93,28 +94,30 @@ public class ProjectionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Query<Order, OrderSummary>(
-            o => o.Status == "Shipped",
-            o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
-            ctx.Order,
-            ctx.OrderSummary);
+        var results = await this.store.Query(ctx.Order)
+            .Where(o => o.Status == "Shipped")
+            .Select(
+                o => new OrderSummary { Customer = o.CustomerName, City = o.ShippingAddress.City },
+                ctx.OrderSummary)
+            .ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, r => r.Customer == "Alice" && r.City == "Portland");
         Assert.Contains(results, r => r.Customer == "Charlie" && r.City == "Portland");
     }
 
-    // ── GetAll with projection ──────────────────────────────────────
+    // ── Select without Where ──────────────────────────────────────
 
     [Fact]
-    public async Task GetAll_WithProjection()
+    public async Task Select_WithoutWhere()
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.GetAll<User, UserSummary>(
-            u => new UserSummary { Name = u.Name, Email = u.Email },
-            ctx.User,
-            ctx.UserSummary);
+        var results = await this.store.Query(ctx.User)
+            .Select(
+                u => new UserSummary { Name = u.Name, Email = u.Email },
+                ctx.UserSummary)
+            .ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Contains(results, r => r.Name == "Alice");
@@ -129,11 +132,12 @@ public class ProjectionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User, UserSummary>(
-            u => u.Name == "Alice",
-            u => new UserSummary { Name = u.Name, Email = u.Email },
-            ctx.User,
-            ctx.UserSummary);
+        var results = await this.store.Query(ctx.User)
+            .Where(u => u.Name == "Alice")
+            .Select(
+                u => new UserSummary { Name = u.Name, Email = u.Email },
+                ctx.UserSummary)
+            .ToList();
 
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Name);
@@ -147,11 +151,12 @@ public class ProjectionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User, UserSummary>(
-            u => u.Name == "Nobody",
-            u => new UserSummary { Name = u.Name, Email = u.Email },
-            ctx.User,
-            ctx.UserSummary);
+        var results = await this.store.Query(ctx.User)
+            .Where(u => u.Name == "Nobody")
+            .Select(
+                u => new UserSummary { Name = u.Name, Email = u.Email },
+                ctx.UserSummary)
+            .ToList();
 
         Assert.Empty(results);
     }
@@ -163,11 +168,12 @@ public class ProjectionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User, UserSummary>(
-            u => u.Name == "Bob",
-            u => new UserSummary { Name = u.Name, Email = u.Email },
-            ctx.User,
-            ctx.UserSummary);
+        var results = await this.store.Query(ctx.User)
+            .Where(u => u.Name == "Bob")
+            .Select(
+                u => new UserSummary { Name = u.Name, Email = u.Email },
+                ctx.UserSummary)
+            .ToList();
 
         Assert.Single(results);
         Assert.Equal("Bob", results[0].Name);
@@ -181,11 +187,12 @@ public class ProjectionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Query<Order, OrderDetail>(
-            o => o.CustomerName == "Alice",
-            o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count() },
-            ctx.Order,
-            ctx.OrderDetail);
+        var results = await this.store.Query(ctx.Order)
+            .Where(o => o.CustomerName == "Alice")
+            .Select(
+                o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count() },
+                ctx.OrderDetail)
+            .ToList();
 
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Customer);
@@ -199,11 +206,12 @@ public class ProjectionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Query<Order, OrderDetail>(
-            o => o.Status == "Shipped",
-            o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count(l => l.ProductName == "Gadget") },
-            ctx.Order,
-            ctx.OrderDetail);
+        var results = await this.store.Query(ctx.Order)
+            .Where(o => o.Status == "Shipped")
+            .Select(
+                o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count(l => l.ProductName == "Gadget") },
+                ctx.OrderDetail)
+            .ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, r => r.Customer == "Alice" && r.LineCount == 1);
@@ -217,10 +225,11 @@ public class ProjectionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.GetAll<Order, OrderDetail>(
-            o => new OrderDetail { Customer = o.CustomerName, HasPriority = o.Tags.Any() },
-            ctx.Order,
-            ctx.OrderDetail);
+        var results = await this.store.Query(ctx.Order)
+            .Select(
+                o => new OrderDetail { Customer = o.CustomerName, HasPriority = o.Tags.Any() },
+                ctx.OrderDetail)
+            .ToList();
 
         Assert.Equal(3, results.Count);
         Assert.All(results, r => Assert.True(r.HasPriority));
@@ -233,10 +242,11 @@ public class ProjectionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.GetAll<Order, OrderDetail>(
-            o => new OrderDetail { Customer = o.CustomerName, HasPriority = o.Tags.Any(t => t == "priority") },
-            ctx.Order,
-            ctx.OrderDetail);
+        var results = await this.store.Query(ctx.Order)
+            .Select(
+                o => new OrderDetail { Customer = o.CustomerName, HasPriority = o.Tags.Any(t => t == "priority") },
+                ctx.OrderDetail)
+            .ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Contains(results, r => r.Customer == "Alice" && r.HasPriority);
@@ -244,17 +254,18 @@ public class ProjectionQueryTests : IDisposable
         Assert.Contains(results, r => r.Customer == "Charlie" && r.HasPriority);
     }
 
-    // ── GetAll with Count ───────────────────────────────────────────
+    // ── Select with Count ───────────────────────────────────────────
 
     [Fact]
-    public async Task GetAll_Projection_WithCount()
+    public async Task Select_WithCount()
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.GetAll<Order, OrderDetail>(
-            o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count() },
-            ctx.Order,
-            ctx.OrderDetail);
+        var results = await this.store.Query(ctx.Order)
+            .Select(
+                o => new OrderDetail { Customer = o.CustomerName, LineCount = o.Lines.Count() },
+                ctx.OrderDetail)
+            .ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Contains(results, r => r.Customer == "Alice" && r.LineCount == 2);

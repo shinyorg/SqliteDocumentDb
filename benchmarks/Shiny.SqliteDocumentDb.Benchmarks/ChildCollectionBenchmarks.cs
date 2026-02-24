@@ -283,7 +283,7 @@ public class ChildCollectionGetAllBenchmarks
     [Benchmark(Description = "DocumentStore GetAll (nested)")]
     public async Task<IReadOnlyList<BenchmarkOrder>> DocumentStore_GetAll()
     {
-        return await store.GetAll(BenchmarkJsonContext.Default.BenchmarkOrder);
+        return await store.Query(BenchmarkJsonContext.Default.BenchmarkOrder).ToList();
     }
 
     [Benchmark(Description = "sqlite-net GetAll (3 tables + rehydrate)")]
@@ -388,10 +388,9 @@ public class ChildCollectionQueryBenchmarks
     [Benchmark(Description = "DocumentStore Query (nested, by status)")]
     public async Task<IReadOnlyList<BenchmarkOrder>> DocumentStore_Query()
     {
-        return await store.Query<BenchmarkOrder>(
-            o => o.Status == "Shipped",
-            BenchmarkJsonContext.Default.BenchmarkOrder
-        );
+        return await store.Query(BenchmarkJsonContext.Default.BenchmarkOrder)
+            .Where(o => o.Status == "Shipped")
+            .ToList();
     }
 
     [Benchmark(Description = "sqlite-net Query (3 tables + rehydrate)")]

@@ -39,10 +39,9 @@ public class QueryBenchmarks
     [Benchmark(Description = "DocumentStore Query")]
     public async Task<IReadOnlyList<BenchmarkUser>> DocumentStore_Query()
     {
-        return await store.Query<BenchmarkUser>(
-            u => u.Name == "Alice_500",
-            BenchmarkJsonContext.Default.BenchmarkUser
-        );
+        return await store.Query(BenchmarkJsonContext.Default.BenchmarkUser)
+            .Where(u => u.Name == "Alice_500")
+            .ToList();
     }
 
     [Benchmark(Description = "sqlite-net Query")]

@@ -95,7 +95,7 @@ public class IndexTests : IDisposable
 
         await this.store.CreateIndexAsync<User>(u => u.Name, ctx.User);
 
-        var results = await this.store.Query<User>(u => u.Name == "Alice", ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Name == "Alice").ToList();
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Name);
     }

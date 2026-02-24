@@ -42,12 +42,12 @@ public class AotSerializationTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAll_WithJsonTypeInfo()
+    public async Task Query_ReturnsAll_WithJsonTypeInfo()
     {
         await this.store.Set("u1", new User { Name = "Alice" }, TestJsonContext.Default.User);
         await this.store.Set("u2", new User { Name = "Bob" }, TestJsonContext.Default.User);
 
-        var results = await this.store.GetAll(TestJsonContext.Default.User);
+        var results = await this.store.Query(TestJsonContext.Default.User).ToList();
 
         Assert.Equal(2, results.Count);
     }

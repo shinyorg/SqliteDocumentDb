@@ -75,7 +75,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Name == "Alice", ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Name == "Alice").ToList();
 
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Name);
@@ -86,7 +86,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Age == 25, ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Age == 25).ToList();
 
         Assert.Equal(2, results.Count);
     }
@@ -96,7 +96,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Name == "Nobody", ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Name == "Nobody").ToList();
 
         Assert.Empty(results);
     }
@@ -108,7 +108,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Age > 30, ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Age > 30).ToList();
 
         Assert.Single(results);
         Assert.Equal("Bob", results[0].Name);
@@ -119,7 +119,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Age <= 25, ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Age <= 25).ToList();
 
         Assert.Equal(2, results.Count);
     }
@@ -131,7 +131,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Age == 25 && u.Name == "Alice", ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Age == 25 && u.Name == "Alice").ToList();
 
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Name);
@@ -142,7 +142,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Name == "Alice" || u.Name == "Bob", ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Name == "Alice" || u.Name == "Bob").ToList();
 
         Assert.Equal(2, results.Count);
     }
@@ -152,7 +152,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => !(u.Name == "Alice"), ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => !(u.Name == "Alice")).ToList();
 
         Assert.Equal(2, results.Count);
         Assert.DoesNotContain(results, u => u.Name == "Alice");
@@ -165,7 +165,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Email == null, ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Email == null).ToList();
 
         Assert.Equal(2, results.Count);
     }
@@ -175,7 +175,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Email != null, ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Email != null).ToList();
 
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Name);
@@ -188,7 +188,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Name.Contains("li"), ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Name.Contains("li")).ToList();
 
         Assert.Equal(2, results.Count); // Alice, Charlie
     }
@@ -198,7 +198,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Name.StartsWith("Al"), ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Name.StartsWith("Al")).ToList();
 
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Name);
@@ -209,7 +209,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var results = await this.store.Query<User>(u => u.Name.EndsWith("ob"), ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Name.EndsWith("ob")).ToList();
 
         Assert.Single(results);
         Assert.Equal("Bob", results[0].Name);
@@ -222,7 +222,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Query<Order>(o => o.ShippingAddress.City == "Portland", ctx.Order);
+        var results = await this.store.Query(ctx.Order).Where(o => o.ShippingAddress.City == "Portland").ToList();
 
         Assert.Equal(2, results.Count);
         Assert.All(results, o => Assert.Equal("Portland", o.ShippingAddress.City));
@@ -235,7 +235,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Query<Order>(o => o.Lines.Any(l => l.ProductName == "Gadget"), ctx.Order);
+        var results = await this.store.Query(ctx.Order).Where(o => o.Lines.Any(l => l.ProductName == "Gadget")).ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Alice");
@@ -249,7 +249,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Query<Order>(o => o.Tags.Any(t => t == "priority"), ctx.Order);
+        var results = await this.store.Query(ctx.Order).Where(o => o.Tags.Any(t => t == "priority")).ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Alice");
@@ -263,7 +263,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Query<Order>(o => o.Tags.Any(), ctx.Order);
+        var results = await this.store.Query(ctx.Order).Where(o => o.Tags.Any()).ToList();
 
         Assert.Equal(3, results.Count); // all orders have tags
     }
@@ -289,7 +289,7 @@ public class ExpressionQueryTests : IDisposable
             Tags = ["test"]
         }, ctx.Order);
 
-        var results = await this.store.Query<Order>(o => o.Lines.Any(), ctx.Order);
+        var results = await this.store.Query(ctx.Order).Where(o => o.Lines.Any()).ToList();
 
         Assert.Single(results);
         Assert.Equal("Full", results[0].CustomerName);
@@ -303,7 +303,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedOrdersAsync();
 
         // Orders with more than 1 line item
-        var results = await this.store.Query<Order>(o => o.Lines.Count() > 1, ctx.Order);
+        var results = await this.store.Query(ctx.Order).Where(o => o.Lines.Count() > 1).ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Alice");
@@ -316,7 +316,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedOrdersAsync();
 
         // Orders that have at least 1 line with quantity >= 3
-        var results = await this.store.Query<Order>(o => o.Lines.Count(l => l.Quantity >= 3) >= 1, ctx.Order);
+        var results = await this.store.Query(ctx.Order).Where(o => o.Lines.Count(l => l.Quantity >= 3) >= 1).ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Bob");     // Widget qty 5
@@ -329,7 +329,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedOrdersAsync();
 
         // Orders with more than 1 tag matching a pattern — using count of tags == "priority"
-        var results = await this.store.Query<Order>(o => o.Tags.Count(t => t == "priority") > 0, ctx.Order);
+        var results = await this.store.Query(ctx.Order).Where(o => o.Tags.Count(t => t == "priority") > 0).ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, o => o.CustomerName == "Alice");
@@ -344,7 +344,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedUsersAsync();
 
         var targetName = "Alice";
-        var results = await this.store.Query<User>(u => u.Name == targetName, ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Name == targetName).ToList();
 
         Assert.Single(results);
         Assert.Equal("Alice", results[0].Name);
@@ -356,7 +356,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedUsersAsync();
 
         var minAge = 30;
-        var results = await this.store.Query<User>(u => u.Age > minAge, ctx.User);
+        var results = await this.store.Query(ctx.User).Where(u => u.Age > minAge).ToList();
 
         Assert.Single(results);
         Assert.Equal("Bob", results[0].Name);
@@ -369,7 +369,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var count = await this.store.Count<User>(u => u.Age == 25, ctx.User);
+        var count = await this.store.Query(ctx.User).Where(u => u.Age == 25).Count();
 
         Assert.Equal(2, count);
     }
@@ -379,7 +379,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var count = await this.store.Count<User>(u => u.Name == "Nobody", ctx.User);
+        var count = await this.store.Query(ctx.User).Where(u => u.Name == "Nobody").Count();
 
         Assert.Equal(0, count);
     }
@@ -392,7 +392,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedOrdersAsync();
 
         // Count orders that contain a "Gadget" line item
-        var count = await this.store.Count<Order>(o => o.Lines.Any(l => l.ProductName == "Gadget"), ctx.Order);
+        var count = await this.store.Query(ctx.Order).Where(o => o.Lines.Any(l => l.ProductName == "Gadget")).Count();
 
         Assert.Equal(2, count); // Alice and Charlie
     }
@@ -403,7 +403,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedOrdersAsync();
 
         // Count orders that have any tags at all
-        var count = await this.store.Count<Order>(o => o.Tags.Any(), ctx.Order);
+        var count = await this.store.Query(ctx.Order).Where(o => o.Tags.Any()).Count();
 
         Assert.Equal(3, count); // all three orders have tags
     }
@@ -414,7 +414,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedOrdersAsync();
 
         // Count orders with more than 1 line item
-        var count = await this.store.Count<Order>(o => o.Lines.Count() > 1, ctx.Order);
+        var count = await this.store.Query(ctx.Order).Where(o => o.Lines.Count() > 1).Count();
 
         Assert.Equal(2, count); // Alice (2 lines) and Charlie (2 lines)
     }
@@ -425,7 +425,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedOrdersAsync();
 
         // Count orders that have at least 1 line with quantity >= 3
-        var count = await this.store.Count<Order>(o => o.Lines.Count(l => l.Quantity >= 3) >= 1, ctx.Order);
+        var count = await this.store.Query(ctx.Order).Where(o => o.Lines.Count(l => l.Quantity >= 3) >= 1).Count();
 
         Assert.Equal(2, count); // Bob (qty 5) and Charlie (qty 3)
     }
@@ -462,7 +462,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedEventsAsync();
 
         var target = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
-        var results = await this.store.Query<Event>(e => e.StartDate == target, ctx.Event);
+        var results = await this.store.Query(ctx.Event).Where(e => e.StartDate == target).ToList();
 
         Assert.Single(results);
         Assert.Equal("Present", results[0].Title);
@@ -474,7 +474,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedEventsAsync();
 
         var cutoff = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var results = await this.store.Query<Event>(e => e.StartDate > cutoff, ctx.Event);
+        var results = await this.store.Query(ctx.Event).Where(e => e.StartDate > cutoff).ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, e => e.Title == "Present");
@@ -487,7 +487,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedEventsAsync();
 
         var cutoff = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var results = await this.store.Query<Event>(e => e.StartDate < cutoff, ctx.Event);
+        var results = await this.store.Query(ctx.Event).Where(e => e.StartDate < cutoff).ToList();
 
         Assert.Single(results);
         Assert.Equal("Past", results[0].Title);
@@ -499,7 +499,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedEventsAsync();
 
         var cutoff = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        var results = await this.store.Query<Event>(e => e.CreatedAt > cutoff, ctx.Event);
+        var results = await this.store.Query(ctx.Event).Where(e => e.CreatedAt > cutoff).ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, e => e.Title == "Present");
@@ -513,8 +513,9 @@ public class ExpressionQueryTests : IDisposable
 
         var start = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var end = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        var results = await this.store.Query<Event>(
-            e => e.CreatedAt >= start && e.CreatedAt < end, ctx.Event);
+        var results = await this.store.Query(ctx.Event)
+            .Where(e => e.CreatedAt >= start && e.CreatedAt < end)
+            .ToList();
 
         Assert.Single(results);
         Assert.Equal("Present", results[0].Title);
@@ -526,7 +527,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedEventsAsync();
 
         var cutoff = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var count = await this.store.Count<Event>(e => e.StartDate >= cutoff, ctx.Event);
+        var count = await this.store.Query(ctx.Event).Where(e => e.StartDate >= cutoff).Count();
 
         Assert.Equal(2, count);
     }
@@ -538,10 +539,10 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var deleted = await this.store.Remove<User>(u => u.Name == "Alice", ctx.User);
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Name == "Alice").Remove();
 
         Assert.Equal(1, deleted);
-        var remaining = await this.store.GetAll<User>(ctx.User);
+        var remaining = await this.store.Query(ctx.User).ToList();
         Assert.Equal(2, remaining.Count);
         Assert.DoesNotContain(remaining, u => u.Name == "Alice");
     }
@@ -551,10 +552,10 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var deleted = await this.store.Remove<User>(u => u.Name == "Alice" || u.Age > 30, ctx.User);
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Name == "Alice" || u.Age > 30).Remove();
 
         Assert.Equal(2, deleted);
-        var remaining = await this.store.GetAll<User>(ctx.User);
+        var remaining = await this.store.Query(ctx.User).ToList();
         Assert.Single(remaining);
         Assert.Equal("Charlie", remaining[0].Name);
     }
@@ -564,10 +565,10 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var deleted = await this.store.Remove<Order>(o => o.ShippingAddress.City == "Portland", ctx.Order);
+        var deleted = await this.store.Query(ctx.Order).Where(o => o.ShippingAddress.City == "Portland").Remove();
 
         Assert.Equal(2, deleted);
-        var remaining = await this.store.GetAll<Order>(ctx.Order);
+        var remaining = await this.store.Query(ctx.Order).ToList();
         Assert.Single(remaining);
         Assert.Equal("Bob", remaining[0].CustomerName);
     }
@@ -578,10 +579,10 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedUsersAsync();
 
         var minAge = 30;
-        var deleted = await this.store.Remove<User>(u => u.Age > minAge, ctx.User);
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Age > minAge).Remove();
 
         Assert.Equal(1, deleted);
-        var remaining = await this.store.GetAll<User>(ctx.User);
+        var remaining = await this.store.Query(ctx.User).ToList();
         Assert.Equal(2, remaining.Count);
         Assert.DoesNotContain(remaining, u => u.Name == "Bob");
     }
@@ -591,7 +592,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var deleted = await this.store.Remove<User>(u => u.Age == 25, ctx.User);
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Age == 25).Remove();
 
         Assert.Equal(2, deleted);
     }
@@ -601,10 +602,10 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var deleted = await this.store.Remove<User>(u => u.Name == "Nobody", ctx.User);
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Name == "Nobody").Remove();
 
         Assert.Equal(0, deleted);
-        var remaining = await this.store.GetAll<User>(ctx.User);
+        var remaining = await this.store.Query(ctx.User).ToList();
         Assert.Equal(3, remaining.Count);
     }
 }

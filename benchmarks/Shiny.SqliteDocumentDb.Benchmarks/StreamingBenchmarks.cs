@@ -3,7 +3,7 @@ using BenchmarkDotNet.Attributes;
 namespace Shiny.SqliteDocumentDb.Benchmarks;
 
 /// <summary>
-/// Compares buffered GetAll (returns IReadOnlyList) vs streaming GetAllStream
+/// Compares buffered Query (returns IReadOnlyList) vs streaming ToAsyncEnumerable
 /// (returns IAsyncEnumerable) for flat POCOs.
 /// </summary>
 [MemoryDiagnoser]
@@ -33,17 +33,17 @@ public class StreamingGetAllBenchmarks
         }
     }
 
-    [Benchmark(Description = "GetAll (buffered)")]
+    [Benchmark(Description = "Query ToListAsync (buffered)")]
     public async Task<IReadOnlyList<BenchmarkUser>> GetAll_Buffered()
     {
-        return await store.GetAll(BenchmarkJsonContext.Default.BenchmarkUser);
+        return await store.Query(BenchmarkJsonContext.Default.BenchmarkUser).ToList();
     }
 
-    [Benchmark(Description = "GetAllStream (IAsyncEnumerable)")]
+    [Benchmark(Description = "Query ToAsyncEnumerable (streaming)")]
     public async Task<int> GetAll_Stream()
     {
         var count = 0;
-        await foreach (var _ in store.GetAllStream(BenchmarkJsonContext.Default.BenchmarkUser).ConfigureAwait(false))
+        await foreach (var _ in store.Query(BenchmarkJsonContext.Default.BenchmarkUser).ToAsyncEnumerable().ConfigureAwait(false))
             count++;
         return count;
     }
@@ -57,7 +57,7 @@ public class StreamingGetAllBenchmarks
 }
 
 /// <summary>
-/// Compares buffered GetAll vs streaming GetAllStream for nested objects
+/// Compares buffered Query vs streaming ToAsyncEnumerable for nested objects
 /// (orders with child collections).
 /// </summary>
 [MemoryDiagnoser]
@@ -86,17 +86,17 @@ public class StreamingGetAllNestedBenchmarks
         }
     }
 
-    [Benchmark(Description = "GetAll nested (buffered)")]
+    [Benchmark(Description = "Query nested ToListAsync (buffered)")]
     public async Task<IReadOnlyList<BenchmarkOrder>> GetAll_Buffered()
     {
-        return await store.GetAll(BenchmarkJsonContext.Default.BenchmarkOrder);
+        return await store.Query(BenchmarkJsonContext.Default.BenchmarkOrder).ToList();
     }
 
-    [Benchmark(Description = "GetAllStream nested (IAsyncEnumerable)")]
+    [Benchmark(Description = "Query nested ToAsyncEnumerable (streaming)")]
     public async Task<int> GetAll_Stream()
     {
         var count = 0;
-        await foreach (var _ in store.GetAllStream(BenchmarkJsonContext.Default.BenchmarkOrder).ConfigureAwait(false))
+        await foreach (var _ in store.Query(BenchmarkJsonContext.Default.BenchmarkOrder).ToAsyncEnumerable().ConfigureAwait(false))
             count++;
         return count;
     }
@@ -153,21 +153,22 @@ public class StreamingQueryBenchmarks
         }
     }
 
-    [Benchmark(Description = "Query nested (buffered)")]
+    [Benchmark(Description = "Query Where ToListAsync (buffered)")]
     public async Task<IReadOnlyList<BenchmarkOrder>> Query_Buffered()
     {
-        return await store.Query<BenchmarkOrder>(
-            o => o.Status == "Shipped",
-            BenchmarkJsonContext.Default.BenchmarkOrder);
+        return await store.Query(BenchmarkJsonContext.Default.BenchmarkOrder)
+            .Where(o => o.Status == "Shipped")
+            .ToList();
     }
 
-    [Benchmark(Description = "QueryStream nested (IAsyncEnumerable)")]
+    [Benchmark(Description = "Query Where ToAsyncEnumerable (streaming)")]
     public async Task<int> Query_Stream()
     {
         var count = 0;
-        await foreach (var _ in store.QueryStream<BenchmarkOrder>(
-            o => o.Status == "Shipped",
-            BenchmarkJsonContext.Default.BenchmarkOrder).ConfigureAwait(false))
+        await foreach (var _ in store.Query(BenchmarkJsonContext.Default.BenchmarkOrder)
+            .Where(o => o.Status == "Shipped")
+            .ToAsyncEnumerable()
+            .ConfigureAwait(false))
         {
             count++;
         }

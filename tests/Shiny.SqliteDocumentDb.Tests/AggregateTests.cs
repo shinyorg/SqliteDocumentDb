@@ -81,7 +81,7 @@ public class AggregateTests : IDisposable
     public async Task Max_AllDocuments()
     {
         await this.SeedUsersAsync();
-        var maxAge = await this.store.Max<User, int>(u => u.Age, ctx.User);
+        var maxAge = await this.store.Query(ctx.User).Max<int>(u => u.Age);
         Assert.Equal(35, maxAge);
     }
 
@@ -89,14 +89,14 @@ public class AggregateTests : IDisposable
     public async Task Max_WithPredicate()
     {
         await this.SeedUsersAsync();
-        var maxAge = await this.store.Max<User, int>(u => u.Age < 35, u => u.Age, ctx.User);
+        var maxAge = await this.store.Query(ctx.User).Where(u => u.Age < 35).Max<int>(u => u.Age);
         Assert.Equal(30, maxAge);
     }
 
     [Fact]
     public async Task Max_EmptyResultSet()
     {
-        var maxAge = await this.store.Max<User, int>(u => u.Age, ctx.User);
+        var maxAge = await this.store.Query(ctx.User).Max<int>(u => u.Age);
         Assert.Equal(0, maxAge);
     }
 
@@ -106,7 +106,7 @@ public class AggregateTests : IDisposable
     public async Task Min_AllDocuments()
     {
         await this.SeedUsersAsync();
-        var minAge = await this.store.Min<User, int>(u => u.Age, ctx.User);
+        var minAge = await this.store.Query(ctx.User).Min<int>(u => u.Age);
         Assert.Equal(25, minAge);
     }
 
@@ -114,7 +114,7 @@ public class AggregateTests : IDisposable
     public async Task Min_WithPredicate()
     {
         await this.SeedUsersAsync();
-        var minAge = await this.store.Min<User, int>(u => u.Age > 25, u => u.Age, ctx.User);
+        var minAge = await this.store.Query(ctx.User).Where(u => u.Age > 25).Min<int>(u => u.Age);
         Assert.Equal(30, minAge);
     }
 
@@ -124,7 +124,7 @@ public class AggregateTests : IDisposable
     public async Task Sum_AllDocuments()
     {
         await this.SeedUsersAsync();
-        var totalAge = await this.store.Sum<User, int>(u => u.Age, ctx.User);
+        var totalAge = await this.store.Query(ctx.User).Sum<int>(u => u.Age);
         Assert.Equal(90, totalAge); // 25 + 35 + 30
     }
 
@@ -132,7 +132,7 @@ public class AggregateTests : IDisposable
     public async Task Sum_WithPredicate()
     {
         await this.SeedUsersAsync();
-        var totalAge = await this.store.Sum<User, int>(u => u.Age > 25, u => u.Age, ctx.User);
+        var totalAge = await this.store.Query(ctx.User).Where(u => u.Age > 25).Sum<int>(u => u.Age);
         Assert.Equal(65, totalAge); // 35 + 30
     }
 
@@ -140,7 +140,7 @@ public class AggregateTests : IDisposable
     public async Task Sum_Decimal()
     {
         await this.SeedProductsAsync();
-        var totalPrice = await this.store.Sum<Product, decimal>(p => p.Price, ctx.Product);
+        var totalPrice = await this.store.Query(ctx.Product).Sum<decimal>(p => p.Price);
         Assert.Equal(49.97m, totalPrice);
     }
 
@@ -150,7 +150,7 @@ public class AggregateTests : IDisposable
     public async Task Average_AllDocuments()
     {
         await this.SeedUsersAsync();
-        var avgAge = await this.store.Average<User>(u => u.Age, ctx.User);
+        var avgAge = await this.store.Query(ctx.User).Average(u => u.Age);
         Assert.Equal(30.0, avgAge);
     }
 
@@ -158,14 +158,14 @@ public class AggregateTests : IDisposable
     public async Task Average_WithPredicate()
     {
         await this.SeedUsersAsync();
-        var avgAge = await this.store.Average<User>(u => u.Age > 25, u => u.Age, ctx.User);
+        var avgAge = await this.store.Query(ctx.User).Where(u => u.Age > 25).Average(u => u.Age);
         Assert.Equal(32.5, avgAge); // (35 + 30) / 2
     }
 
     [Fact]
     public async Task Average_EmptyResultSet()
     {
-        var avgAge = await this.store.Average<User>(u => u.Age, ctx.User);
+        var avgAge = await this.store.Query(ctx.User).Average(u => u.Age);
         Assert.Equal(0d, avgAge);
     }
 
@@ -176,14 +176,15 @@ public class AggregateTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.GetAll<Order, OrderLineAggregates>(
-            o => new OrderLineAggregates
-            {
-                Customer = o.CustomerName,
-                TotalQty = o.Lines.Sum(l => l.Quantity)
-            },
-            ctx.Order,
-            ctx.OrderLineAggregates);
+        var results = await this.store.Query(ctx.Order)
+            .Select(
+                o => new OrderLineAggregates
+                {
+                    Customer = o.CustomerName,
+                    TotalQty = o.Lines.Sum(l => l.Quantity)
+                },
+                ctx.OrderLineAggregates)
+            .ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Contains(results, r => r.Customer == "Alice" && r.TotalQty == 3);   // 2 + 1
@@ -196,14 +197,15 @@ public class AggregateTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.GetAll<Order, OrderLineAggregates>(
-            o => new OrderLineAggregates
-            {
-                Customer = o.CustomerName,
-                MaxPrice = o.Lines.Max(l => l.UnitPrice)
-            },
-            ctx.Order,
-            ctx.OrderLineAggregates);
+        var results = await this.store.Query(ctx.Order)
+            .Select(
+                o => new OrderLineAggregates
+                {
+                    Customer = o.CustomerName,
+                    MaxPrice = o.Lines.Max(l => l.UnitPrice)
+                },
+                ctx.OrderLineAggregates)
+            .ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Contains(results, r => r.Customer == "Alice" && r.MaxPrice == 24.99m);
@@ -216,14 +218,15 @@ public class AggregateTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.GetAll<Order, OrderLineAggregates>(
-            o => new OrderLineAggregates
-            {
-                Customer = o.CustomerName,
-                MinPrice = o.Lines.Min(l => l.UnitPrice)
-            },
-            ctx.Order,
-            ctx.OrderLineAggregates);
+        var results = await this.store.Query(ctx.Order)
+            .Select(
+                o => new OrderLineAggregates
+                {
+                    Customer = o.CustomerName,
+                    MinPrice = o.Lines.Min(l => l.UnitPrice)
+                },
+                ctx.OrderLineAggregates)
+            .ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Contains(results, r => r.Customer == "Alice" && r.MinPrice == 9.99m);
@@ -236,17 +239,18 @@ public class AggregateTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Query<Order, OrderLineAggregates>(
-            o => o.CustomerName == "Alice",
-            o => new OrderLineAggregates
-            {
-                Customer = o.CustomerName,
-                TotalQty = o.Lines.Sum(l => l.Quantity),
-                MaxPrice = o.Lines.Max(l => l.UnitPrice),
-                MinPrice = o.Lines.Min(l => l.UnitPrice),
-            },
-            ctx.Order,
-            ctx.OrderLineAggregates);
+        var results = await this.store.Query(ctx.Order)
+            .Where(o => o.CustomerName == "Alice")
+            .Select(
+                o => new OrderLineAggregates
+                {
+                    Customer = o.CustomerName,
+                    TotalQty = o.Lines.Sum(l => l.Quantity),
+                    MaxPrice = o.Lines.Max(l => l.UnitPrice),
+                    MinPrice = o.Lines.Min(l => l.UnitPrice),
+                },
+                ctx.OrderLineAggregates)
+            .ToList();
 
         Assert.Single(results);
         var r = results[0];
@@ -263,14 +267,15 @@ public class AggregateTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Aggregate<Order, OrderStats>(
-            o => new OrderStats
-            {
-                Status = o.Status,
-                OrderCount = Sql.Count(),
-            },
-            ctx.Order,
-            ctx.OrderStats);
+        var results = await this.store.Query(ctx.Order)
+            .Select(
+                o => new OrderStats
+                {
+                    Status = o.Status,
+                    OrderCount = Sql.Count(),
+                },
+                ctx.OrderStats)
+            .ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, r => r.Status == "Shipped" && r.OrderCount == 2);
@@ -282,15 +287,16 @@ public class AggregateTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var results = await this.store.Aggregate<Order, OrderStats>(
-            o => o.Status == "Shipped",
-            o => new OrderStats
-            {
-                Status = o.Status,
-                OrderCount = Sql.Count(),
-            },
-            ctx.Order,
-            ctx.OrderStats);
+        var results = await this.store.Query(ctx.Order)
+            .Where(o => o.Status == "Shipped")
+            .Select(
+                o => new OrderStats
+                {
+                    Status = o.Status,
+                    OrderCount = Sql.Count(),
+                },
+                ctx.OrderStats)
+            .ToList();
 
         Assert.Single(results);
         Assert.Equal("Shipped", results[0].Status);
@@ -302,17 +308,18 @@ public class AggregateTests : IDisposable
     {
         await this.SeedProductsAsync();
 
-        var results = await this.store.Aggregate<Product, PriceSummary>(
-            p => new PriceSummary
-            {
-                TotalCount = Sql.Count(),
-                MaxPrice = Sql.Max(p.Price),
-                MinPrice = Sql.Min(p.Price),
-                SumPrice = Sql.Sum(p.Price),
-                AvgPrice = Sql.Avg(p.Price),
-            },
-            ctx.Product,
-            ctx.PriceSummary);
+        var results = await this.store.Query(ctx.Product)
+            .Select(
+                p => new PriceSummary
+                {
+                    TotalCount = Sql.Count(),
+                    MaxPrice = Sql.Max(p.Price),
+                    MinPrice = Sql.Min(p.Price),
+                    SumPrice = Sql.Sum(p.Price),
+                    AvgPrice = Sql.Avg(p.Price),
+                },
+                ctx.PriceSummary)
+            .ToList();
 
         Assert.Single(results);
         var r = results[0];
@@ -327,17 +334,18 @@ public class AggregateTests : IDisposable
     public async Task Aggregate_EmptyResultSet()
     {
         // No products seeded — aggregate over empty set
-        var results = await this.store.Aggregate<Product, PriceSummary>(
-            p => new PriceSummary
-            {
-                TotalCount = Sql.Count(),
-                MaxPrice = Sql.Max(p.Price),
-                MinPrice = Sql.Min(p.Price),
-                SumPrice = Sql.Sum(p.Price),
-                AvgPrice = Sql.Avg(p.Price),
-            },
-            ctx.Product,
-            ctx.PriceSummary);
+        var results = await this.store.Query(ctx.Product)
+            .Select(
+                p => new PriceSummary
+                {
+                    TotalCount = Sql.Count(),
+                    MaxPrice = Sql.Max(p.Price),
+                    MinPrice = Sql.Min(p.Price),
+                    SumPrice = Sql.Sum(p.Price),
+                    AvgPrice = Sql.Avg(p.Price),
+                },
+                ctx.PriceSummary)
+            .ToList();
 
         Assert.Single(results);
         var r = results[0];

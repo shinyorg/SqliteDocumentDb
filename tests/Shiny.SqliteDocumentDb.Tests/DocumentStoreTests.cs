@@ -73,12 +73,12 @@ public class DocumentStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAll_ReturnsAllDocumentsOfType()
+    public async Task Query_ReturnsAllDocumentsOfType()
     {
         await this.store.Set("u1", new User { Name = "Alice" });
         await this.store.Set("u2", new User { Name = "Bob" });
 
-        var results = await this.store.GetAll<User>();
+        var results = await this.store.Query<User>().ToList();
 
         Assert.Equal(2, results.Count);
     }
@@ -112,11 +112,11 @@ public class DocumentStoreTests : IDisposable
         var cleared = await this.store.Clear<User>();
         Assert.Equal(2, cleared);
 
-        var users = await this.store.GetAll<User>();
+        var users = await this.store.Query<User>().ToList();
         Assert.Empty(users);
 
         // Product should still exist
-        var products = await this.store.GetAll<Product>();
+        var products = await this.store.Query<Product>().ToList();
         Assert.Single(products);
     }
 
@@ -353,6 +353,39 @@ public class DocumentStoreTests : IDisposable
     }
 }
 
+public class LoggingTests : IDisposable
+{
+    readonly List<string> loggedSql = [];
+    readonly SqliteDocumentStore store;
+
+    public LoggingTests()
+    {
+        this.store = new SqliteDocumentStore(new DocumentStoreOptions
+        {
+            ConnectionString = "Data Source=:memory:",
+            Logging = sql => this.loggedSql.Add(sql)
+        });
+    }
+
+    public void Dispose() => this.store.Dispose();
+
+    [Fact]
+    public async Task Logging_CapturesSqlStatements()
+    {
+        var id = await this.store.Set(new User { Name = "Allan", Age = 30 });
+        await this.store.Get<User>(id);
+        await this.store.Count<User>();
+        await this.store.Remove<User>(id);
+
+        Assert.Contains(this.loggedSql, s => s.Contains("PRAGMA journal_mode=WAL"));
+        Assert.Contains(this.loggedSql, s => s.Contains("CREATE TABLE IF NOT EXISTS"));
+        Assert.Contains(this.loggedSql, s => s.Contains("INSERT INTO documents"));
+        Assert.Contains(this.loggedSql, s => s.Contains("SELECT Data FROM documents"));
+        Assert.Contains(this.loggedSql, s => s.Contains("SELECT COUNT(*)"));
+        Assert.Contains(this.loggedSql, s => s.Contains("DELETE FROM documents"));
+    }
+}
+
 public class DocumentStoreResolverTests : IDisposable
 {
     readonly SqliteDocumentStore store;
@@ -401,12 +434,12 @@ public class DocumentStoreResolverTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAll_WithResolver_UsesTypeInfo()
+    public async Task Query_ReturnsAllDocumentsOfType()
     {
         await this.store.Set("u1", new User { Name = "Alice" });
         await this.store.Set("u2", new User { Name = "Bob" });
 
-        var results = await this.store.GetAll<User>();
+        var results = await this.store.Query<User>().ToList();
 
         Assert.Equal(2, results.Count);
     }

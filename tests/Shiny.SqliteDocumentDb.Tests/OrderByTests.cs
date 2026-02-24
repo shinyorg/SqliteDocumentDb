@@ -27,13 +27,13 @@ public class OrderByTests : IDisposable
         await this.store.Set("u3", new User { Name = "Charlie", Age = 30 }, ctx.User);
     }
 
-    // ── GetAll ──────────────────────────────────────────────────
+    // ── ToList ──────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetAll_OrderByAscending()
+    public async Task OrderByAscending()
     {
         await this.SeedUsersAsync();
-        var results = await this.store.GetAll(ctx.User, OrderBy<User>.Ascending(u => u.Age));
+        var results = await this.store.Query(ctx.User).OrderBy(u => u.Age).ToList();
         Assert.Equal(3, results.Count);
         Assert.Equal("Alice", results[0].Name);
         Assert.Equal("Charlie", results[1].Name);
@@ -41,10 +41,10 @@ public class OrderByTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAll_OrderByDescending()
+    public async Task OrderByDescending()
     {
         await this.SeedUsersAsync();
-        var results = await this.store.GetAll(ctx.User, OrderBy<User>.Descending(u => u.Age));
+        var results = await this.store.Query(ctx.User).OrderByDescending(u => u.Age).ToList();
         Assert.Equal(3, results.Count);
         Assert.Equal("Bob", results[0].Name);
         Assert.Equal("Charlie", results[1].Name);
@@ -52,10 +52,10 @@ public class OrderByTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAll_OrderByString()
+    public async Task OrderByString()
     {
         await this.SeedUsersAsync();
-        var results = await this.store.GetAll(ctx.User, OrderBy<User>.Ascending(u => u.Name));
+        var results = await this.store.Query(ctx.User).OrderBy(u => u.Name).ToList();
         Assert.Equal(3, results.Count);
         Assert.Equal("Alice", results[0].Name);
         Assert.Equal("Bob", results[1].Name);
@@ -63,20 +63,23 @@ public class OrderByTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAll_NoOrderBy_ReturnsAllDocuments()
+    public async Task NoOrderBy_ReturnsAllDocuments()
     {
         await this.SeedUsersAsync();
-        var results = await this.store.GetAll(ctx.User);
+        var results = await this.store.Query(ctx.User).ToList();
         Assert.Equal(3, results.Count);
     }
 
-    // ── Query with expression predicate ─────────────────────────
+    // ── Query with Where + OrderBy ─────────────────────────────────
 
     [Fact]
-    public async Task Query_Expression_OrderByAscending()
+    public async Task Where_OrderByAscending()
     {
         await this.SeedUsersAsync();
-        var results = await this.store.Query<User>(u => u.Age >= 25, ctx.User, OrderBy<User>.Ascending(u => u.Age));
+        var results = await this.store.Query(ctx.User)
+            .Where(u => u.Age >= 25)
+            .OrderBy(u => u.Age)
+            .ToList();
         Assert.Equal(3, results.Count);
         Assert.Equal("Alice", results[0].Name);
         Assert.Equal("Charlie", results[1].Name);
@@ -84,23 +87,26 @@ public class OrderByTests : IDisposable
     }
 
     [Fact]
-    public async Task Query_Expression_OrderByDescending()
+    public async Task Where_OrderByDescending()
     {
         await this.SeedUsersAsync();
-        var results = await this.store.Query<User>(u => u.Age > 25, ctx.User, OrderBy<User>.Descending(u => u.Age));
+        var results = await this.store.Query(ctx.User)
+            .Where(u => u.Age > 25)
+            .OrderByDescending(u => u.Age)
+            .ToList();
         Assert.Equal(2, results.Count);
         Assert.Equal("Bob", results[0].Name);
         Assert.Equal("Charlie", results[1].Name);
     }
 
-    // ── GetAllStream ────────────────────────────────────────────
+    // ── ToAsyncEnumerable ────────────────────────────────────────────
 
     [Fact]
-    public async Task GetAllStream_OrderByAscending()
+    public async Task Stream_OrderByAscending()
     {
         await this.SeedUsersAsync();
         var results = new List<User>();
-        await foreach (var user in this.store.GetAllStream(ctx.User, OrderBy<User>.Ascending(u => u.Age)))
+        await foreach (var user in this.store.Query(ctx.User).OrderBy(u => u.Age).ToAsyncEnumerable())
             results.Add(user);
 
         Assert.Equal(3, results.Count);
@@ -110,11 +116,11 @@ public class OrderByTests : IDisposable
     }
 
     [Fact]
-    public async Task GetAllStream_OrderByDescending()
+    public async Task Stream_OrderByDescending()
     {
         await this.SeedUsersAsync();
         var results = new List<User>();
-        await foreach (var user in this.store.GetAllStream(ctx.User, OrderBy<User>.Descending(u => u.Age)))
+        await foreach (var user in this.store.Query(ctx.User).OrderByDescending(u => u.Age).ToAsyncEnumerable())
             results.Add(user);
 
         Assert.Equal(3, results.Count);
@@ -123,14 +129,14 @@ public class OrderByTests : IDisposable
         Assert.Equal("Alice", results[2].Name);
     }
 
-    // ── QueryStream with expression predicate ───────────────────
+    // ── Stream with Where + OrderBy ───────────────────────────────
 
     [Fact]
-    public async Task QueryStream_Expression_OrderByAscending()
+    public async Task Stream_Where_OrderByAscending()
     {
         await this.SeedUsersAsync();
         var results = new List<User>();
-        await foreach (var user in this.store.QueryStream<User>(u => u.Age > 25, ctx.User, OrderBy<User>.Ascending(u => u.Age)))
+        await foreach (var user in this.store.Query(ctx.User).Where(u => u.Age > 25).OrderBy(u => u.Age).ToAsyncEnumerable())
             results.Add(user);
 
         Assert.Equal(2, results.Count);
@@ -138,17 +144,18 @@ public class OrderByTests : IDisposable
         Assert.Equal("Bob", results[1].Name);
     }
 
-    // ── Projection + OrderBy ────────────────────────────────────
+    // ── Projection + OrderBy ────────────────────────────────────────
 
     [Fact]
-    public async Task GetAll_Projection_OrderBy()
+    public async Task Projection_OrderBy()
     {
         await this.SeedUsersAsync();
-        var results = await this.store.GetAll<User, UserSummary>(
-            u => new UserSummary { Name = u.Name, Email = u.Email },
-            ctx.User,
-            ctx.UserSummary,
-            OrderBy<User>.Ascending(u => u.Name));
+        var results = await this.store.Query(ctx.User)
+            .OrderBy(u => u.Name)
+            .Select(
+                u => new UserSummary { Name = u.Name, Email = u.Email },
+                ctx.UserSummary)
+            .ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Equal("Alice", results[0].Name);
@@ -157,15 +164,16 @@ public class OrderByTests : IDisposable
     }
 
     [Fact]
-    public async Task Query_Projection_OrderBy()
+    public async Task Where_Projection_OrderBy()
     {
         await this.SeedUsersAsync();
-        var results = await this.store.Query<User, UserSummary>(
-            u => u.Age >= 25,
-            u => new UserSummary { Name = u.Name, Email = u.Email },
-            ctx.User,
-            ctx.UserSummary,
-            OrderBy<User>.Descending(u => u.Name));
+        var results = await this.store.Query(ctx.User)
+            .Where(u => u.Age >= 25)
+            .OrderByDescending(u => u.Name)
+            .Select(
+                u => new UserSummary { Name = u.Name, Email = u.Email },
+                ctx.UserSummary)
+            .ToList();
 
         Assert.Equal(3, results.Count);
         Assert.Equal("Charlie", results[0].Name);

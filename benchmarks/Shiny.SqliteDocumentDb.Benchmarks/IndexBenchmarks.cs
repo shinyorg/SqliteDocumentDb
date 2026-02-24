@@ -43,17 +43,17 @@ public class IndexQueryBenchmarks
     [Benchmark(Description = "Query without index")]
     public async Task<IReadOnlyList<BenchmarkUser>> Query_NoIndex()
     {
-        return await storeNoIndex.Query<BenchmarkUser>(
-            u => u.Name == "User_500",
-            BenchmarkJsonContext.Default.BenchmarkUser);
+        return await storeNoIndex.Query(BenchmarkJsonContext.Default.BenchmarkUser)
+            .Where(u => u.Name == "User_500")
+            .ToList();
     }
 
     [Benchmark(Description = "Query with index")]
     public async Task<IReadOnlyList<BenchmarkUser>> Query_WithIndex()
     {
-        return await storeWithIndex.Query<BenchmarkUser>(
-            u => u.Name == "User_500",
-            BenchmarkJsonContext.Default.BenchmarkUser);
+        return await storeWithIndex.Query(BenchmarkJsonContext.Default.BenchmarkUser)
+            .Where(u => u.Name == "User_500")
+            .ToList();
     }
 
     [GlobalCleanup]
@@ -109,17 +109,17 @@ public class IndexNestedQueryBenchmarks
     [Benchmark(Description = "Nested query without index")]
     public async Task<IReadOnlyList<BenchmarkOrder>> Query_NoIndex()
     {
-        return await storeNoIndex.Query<BenchmarkOrder>(
-            o => o.ShippingAddress.City == "Portland",
-            BenchmarkJsonContext.Default.BenchmarkOrder);
+        return await storeNoIndex.Query(BenchmarkJsonContext.Default.BenchmarkOrder)
+            .Where(o => o.ShippingAddress.City == "Portland")
+            .ToList();
     }
 
     [Benchmark(Description = "Nested query with index")]
     public async Task<IReadOnlyList<BenchmarkOrder>> Query_WithIndex()
     {
-        return await storeWithIndex.Query<BenchmarkOrder>(
-            o => o.ShippingAddress.City == "Portland",
-            BenchmarkJsonContext.Default.BenchmarkOrder);
+        return await storeWithIndex.Query(BenchmarkJsonContext.Default.BenchmarkOrder)
+            .Where(o => o.ShippingAddress.City == "Portland")
+            .ToList();
     }
 
     [GlobalCleanup]

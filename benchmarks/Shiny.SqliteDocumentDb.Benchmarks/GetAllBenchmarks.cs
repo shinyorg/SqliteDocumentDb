@@ -42,7 +42,7 @@ public class GetAllBenchmarks
     [Benchmark(Description = "DocumentStore GetAll")]
     public async Task<IReadOnlyList<BenchmarkUser>> DocumentStore_GetAll()
     {
-        return await store.GetAll(BenchmarkJsonContext.Default.BenchmarkUser);
+        return await store.Query(BenchmarkJsonContext.Default.BenchmarkUser).ToList();
     }
 
     [Benchmark(Description = "sqlite-net GetAll")]
