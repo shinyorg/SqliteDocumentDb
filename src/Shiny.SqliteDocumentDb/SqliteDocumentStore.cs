@@ -527,7 +527,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Only serializes System.String which has a built-in converter.")]
     [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Only serializes System.String which has a built-in converter.")]
-    static string ToJsonLiteral(object? value) => value switch
+    internal static string ToJsonLiteral(object? value) => value switch
     {
         null => "null",
         bool b => b ? "true" : "false",

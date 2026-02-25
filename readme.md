@@ -521,7 +521,8 @@ The fluent query builder is the primary way to query, filter, sort, paginate, pr
 | `.ToAsyncEnumerable()` | `IAsyncEnumerable<T>` | Stream results one-at-a-time without buffering. |
 | `.Count()` | `Task<long>` | Count matching documents. |
 | `.Any()` | `Task<bool>` | Check if any documents match. |
-| `.Remove()` | `Task<int>` | Delete matching documents and return count deleted. |
+| `.ExecuteDelete()` | `Task<int>` | Delete matching documents and return count deleted. |
+| `.ExecuteUpdate(property, value)` | `Task<int>` | Update a property on all matching documents via `json_set()` and return count updated. |
 | `.Max(selector)` | `Task<TValue>` | Maximum value of a property. |
 | `.Min(selector)` | `Task<TValue>` | Minimum value of a property. |
 | `.Sum(selector)` | `Task<TValue>` | Sum of a property. |
@@ -638,27 +639,51 @@ var count = await store.Query<Order>()
 var count = await store.Query<Order>().Where(o => o.Lines.Count() > 1).Count();
 ```
 
-### Removing with expressions
+### Bulk delete with ExecuteDelete
 
 Delete documents matching a predicate in a single SQL DELETE — no need to query first.
 
 ```csharp
 // Simple predicate — returns number of deleted rows
-int deleted = await store.Query<User>().Where(u => u.Age < 18).Remove();
+int deleted = await store.Query<User>().Where(u => u.Age < 18).ExecuteDelete();
 
 // Complex predicates with && and ||
 int deleted = await store.Query<Order>()
     .Where(o => o.ShippingAddress.City == "Portland" || o.Status == "Cancelled")
-    .Remove();
+    .ExecuteDelete();
 
 // Nested properties
 int deleted = await store.Query<Order>()
     .Where(o => o.ShippingAddress.State == "OR")
-    .Remove();
+    .ExecuteDelete();
 
 // Captured variables
 var cutoffAge = 65;
-int deleted = await store.Query<User>().Where(u => u.Age > cutoffAge).Remove();
+int deleted = await store.Query<User>().Where(u => u.Age > cutoffAge).ExecuteDelete();
+```
+
+### Bulk update with ExecuteUpdate
+
+Update a single property on all matching documents in a single SQL UPDATE via `json_set()` — no deserialization needed.
+
+```csharp
+// Update a scalar property on filtered docs
+int updated = await store.Query<User>()
+    .Where(u => u.Age < 18)
+    .ExecuteUpdate(u => u.Age, 18);
+
+// Update a nested property
+int updated = await store.Query<Order>()
+    .Where(o => o.ShippingAddress.City == "Portland")
+    .ExecuteUpdate(o => o.ShippingAddress.City, "Eugene");
+
+// Set a property to null
+int updated = await store.Query<User>()
+    .Where(u => u.Name == "Alice")
+    .ExecuteUpdate(u => u.Email, null);
+
+// Update all documents of a type (no Where)
+int updated = await store.Query<User>().ExecuteUpdate(u => u.Age, 0);
 ```
 
 ### Ordering

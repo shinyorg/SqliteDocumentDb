@@ -539,7 +539,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var deleted = await this.store.Query(ctx.User).Where(u => u.Name == "Alice").Remove();
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Name == "Alice").ExecuteDelete();
 
         Assert.Equal(1, deleted);
         var remaining = await this.store.Query(ctx.User).ToList();
@@ -552,7 +552,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var deleted = await this.store.Query(ctx.User).Where(u => u.Name == "Alice" || u.Age > 30).Remove();
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Name == "Alice" || u.Age > 30).ExecuteDelete();
 
         Assert.Equal(2, deleted);
         var remaining = await this.store.Query(ctx.User).ToList();
@@ -565,7 +565,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedOrdersAsync();
 
-        var deleted = await this.store.Query(ctx.Order).Where(o => o.ShippingAddress.City == "Portland").Remove();
+        var deleted = await this.store.Query(ctx.Order).Where(o => o.ShippingAddress.City == "Portland").ExecuteDelete();
 
         Assert.Equal(2, deleted);
         var remaining = await this.store.Query(ctx.Order).ToList();
@@ -579,7 +579,7 @@ public class ExpressionQueryTests : IDisposable
         await this.SeedUsersAsync();
 
         var minAge = 30;
-        var deleted = await this.store.Query(ctx.User).Where(u => u.Age > minAge).Remove();
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Age > minAge).ExecuteDelete();
 
         Assert.Equal(1, deleted);
         var remaining = await this.store.Query(ctx.User).ToList();
@@ -592,7 +592,7 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var deleted = await this.store.Query(ctx.User).Where(u => u.Age == 25).Remove();
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Age == 25).ExecuteDelete();
 
         Assert.Equal(2, deleted);
     }
@@ -602,10 +602,80 @@ public class ExpressionQueryTests : IDisposable
     {
         await this.SeedUsersAsync();
 
-        var deleted = await this.store.Query(ctx.User).Where(u => u.Name == "Nobody").Remove();
+        var deleted = await this.store.Query(ctx.User).Where(u => u.Name == "Nobody").ExecuteDelete();
 
         Assert.Equal(0, deleted);
         var remaining = await this.store.Query(ctx.User).ToList();
         Assert.Equal(3, remaining.Count);
+    }
+
+    // ── ExecuteUpdate with expressions ─────────────────────────────
+
+    [Fact]
+    public async Task ExecuteUpdate_UpdatesMatchingDocuments()
+    {
+        await this.SeedUsersAsync();
+
+        var updated = await this.store.Query(ctx.User).Where(u => u.Age == 25).ExecuteUpdate(u => u.Age, 30);
+
+        Assert.Equal(2, updated);
+        var alice = (await this.store.Query(ctx.User).Where(u => u.Name == "Alice").ToList())[0];
+        Assert.Equal(30, alice.Age);
+        var charlie = (await this.store.Query(ctx.User).Where(u => u.Name == "Charlie").ToList())[0];
+        Assert.Equal(30, charlie.Age);
+        // Bob unchanged
+        var bob = (await this.store.Query(ctx.User).Where(u => u.Name == "Bob").ToList())[0];
+        Assert.Equal(35, bob.Age);
+    }
+
+    [Fact]
+    public async Task ExecuteUpdate_WithNoMatch_ReturnsZero()
+    {
+        await this.SeedUsersAsync();
+
+        var updated = await this.store.Query(ctx.User).Where(u => u.Name == "Nobody").ExecuteUpdate(u => u.Age, 99);
+
+        Assert.Equal(0, updated);
+    }
+
+    [Fact]
+    public async Task ExecuteUpdate_WithoutWhere_UpdatesAllOfType()
+    {
+        await this.SeedUsersAsync();
+
+        var updated = await this.store.Query(ctx.User).ExecuteUpdate(u => u.Age, 50);
+
+        Assert.Equal(3, updated);
+        var all = await this.store.Query(ctx.User).ToList();
+        Assert.All(all, u => Assert.Equal(50, u.Age));
+    }
+
+    [Fact]
+    public async Task ExecuteUpdate_NestedProperty()
+    {
+        await this.SeedOrdersAsync();
+
+        var updated = await this.store.Query(ctx.Order)
+            .Where(o => o.ShippingAddress.City == "Portland")
+            .ExecuteUpdate(o => o.ShippingAddress.City, "Eugene");
+
+        Assert.Equal(2, updated);
+        var orders = await this.store.Query(ctx.Order).Where(o => o.ShippingAddress.City == "Eugene").ToList();
+        Assert.Equal(2, orders.Count);
+        // Bob's Seattle unchanged
+        var bob = (await this.store.Query(ctx.Order).Where(o => o.CustomerName == "Bob").ToList())[0];
+        Assert.Equal("Seattle", bob.ShippingAddress.City);
+    }
+
+    [Fact]
+    public async Task ExecuteUpdate_NullValue()
+    {
+        await this.SeedUsersAsync();
+
+        var updated = await this.store.Query(ctx.User).Where(u => u.Name == "Alice").ExecuteUpdate(u => u.Email, null);
+
+        Assert.Equal(1, updated);
+        var alice = (await this.store.Query(ctx.User).Where(u => u.Name == "Alice").ToList())[0];
+        Assert.Null(alice.Email);
     }
 }

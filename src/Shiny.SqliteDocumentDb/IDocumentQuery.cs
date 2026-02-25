@@ -64,7 +64,16 @@ public interface IDocumentQuery<T> where T : class
     /// <summary>
     /// Deletes all documents matching the current filters and returns the number deleted.
     /// </summary>
-    Task<int> Remove(CancellationToken ct = default);
+    Task<int> ExecuteDelete(CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates a single property on all documents matching the current filters using json_set()
+    /// and returns the number of rows updated.
+    /// </summary>
+    /// <param name="property">Expression selecting the property to update.</param>
+    /// <param name="value">The new value (scalar: string, int, bool, etc., or null).</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<int> ExecuteUpdate(Expression<Func<T, object>> property, object? value, CancellationToken ct = default);
 
     /// <summary>
     /// Returns the maximum value of the selected property across matching documents.

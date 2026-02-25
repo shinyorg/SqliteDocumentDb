@@ -244,7 +244,8 @@ The fluent query builder is the primary way to query documents. Start with `stor
 | `.ToAsyncEnumerable()` | `IAsyncEnumerable<T>` | Stream results one-at-a-time. |
 | `.Count()` | `Task<long>` | Count matching documents. |
 | `.Any()` | `Task<bool>` | Check if any documents match. |
-| `.Remove()` | `Task<int>` | Delete matching documents. Returns count. |
+| `.ExecuteDelete()` | `Task<int>` | Delete matching documents. Returns count. |
+| `.ExecuteUpdate(property, value)` | `Task<int>` | Update a property on all matching documents via `json_set()`. Returns count. |
 | `.Max(selector)` | `Task<TValue>` | Maximum value of a property. |
 | `.Min(selector)` | `Task<TValue>` | Minimum value of a property. |
 | `.Sum(selector)` | `Task<TValue>` | Sum of a property. |
@@ -296,7 +297,17 @@ var any = await store.Query<User>()
 // Delete matching documents
 int deleted = await store.Query<User>()
     .Where(u => u.Age < 18)
-    .Remove();
+    .ExecuteDelete();
+
+// Update a property on matching documents
+int updated = await store.Query<User>()
+    .Where(u => u.Age < 18)
+    .ExecuteUpdate(u => u.Age, 18);
+
+// Update a nested property
+int updated = await store.Query<Order>()
+    .Where(o => o.ShippingAddress.City == "Portland")
+    .ExecuteUpdate(o => o.ShippingAddress.City, "Eugene");
 
 // Scalar aggregates
 var maxAge = await store.Query<User>().Max(u => u.Age);

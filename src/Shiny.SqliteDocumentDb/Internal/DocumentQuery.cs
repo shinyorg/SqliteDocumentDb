@@ -162,7 +162,7 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
         }, ct);
     }
 
-    public Task<int> Remove(CancellationToken ct = default)
+    public Task<int> ExecuteDelete(CancellationToken ct = default)
     {
         var (whereClause, whereParams) = BuildWhereClause();
         var typeName = this.executor.ResolveTypeName<T>();
@@ -174,6 +174,32 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
             if (whereClause != null)
                 sql += $" AND ({whereClause})";
             cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@typeName", typeName);
+            if (whereParams != null)
+                BindDictionaryParameters(cmd, whereParams);
+
+            this.executor.Logging?.Invoke(cmd.CommandText);
+            return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }, ct);
+    }
+
+    public Task<int> ExecuteUpdate(Expression<Func<T, object>> property, object? value, CancellationToken ct = default)
+    {
+        var typeInfo = this.RequireTypeInfo();
+        var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, typeInfo);
+        var (whereClause, whereParams) = BuildWhereClause();
+        var typeName = this.executor.ResolveTypeName<T>();
+
+        return this.executor.ExecuteAsync(async () =>
+        {
+            await using var cmd = this.executor.CreateCommand();
+            var sql = "UPDATE documents SET Data = json_set(Data, @path, json(@value)), UpdatedAt = @now WHERE TypeName = @typeName";
+            if (whereClause != null)
+                sql += $" AND ({whereClause})";
+            cmd.CommandText = sql + ";";
+            cmd.Parameters.AddWithValue("@path", "$." + jsonPath);
+            cmd.Parameters.AddWithValue("@value", SqliteDocumentStore.ToJsonLiteral(value));
+            cmd.Parameters.AddWithValue("@now", DateTimeOffset.UtcNow.ToString("O"));
             cmd.Parameters.AddWithValue("@typeName", typeName);
             if (whereParams != null)
                 BindDictionaryParameters(cmd, whereParams);

@@ -177,8 +177,11 @@ internal sealed class ProjectedDocumentQuery<TSource, TResult> : IDocumentQuery<
         }, ct);
     }
 
-    public Task<int> Remove(CancellationToken ct = default)
-        => throw new InvalidOperationException("Cannot remove after Select.");
+    public Task<int> ExecuteDelete(CancellationToken ct = default)
+        => throw new InvalidOperationException("Cannot execute delete after Select.");
+
+    public Task<int> ExecuteUpdate(Expression<Func<TResult, object>> property, object? value, CancellationToken ct = default)
+        => throw new InvalidOperationException("Cannot execute update after Select.");
 
     public Task<bool> Any(CancellationToken ct = default)
     {
