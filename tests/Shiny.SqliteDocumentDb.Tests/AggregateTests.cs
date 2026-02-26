@@ -22,22 +22,23 @@ public class AggregateTests : IDisposable
 
     async Task SeedUsersAsync()
     {
-        await this.store.Set("u1", new User { Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
-        await this.store.Set("u2", new User { Name = "Bob", Age = 35 }, ctx.User);
-        await this.store.Set("u3", new User { Name = "Charlie", Age = 30 }, ctx.User);
+        await this.store.Set(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
+        await this.store.Set(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
+        await this.store.Set(new User { Id = "u3", Name = "Charlie", Age = 30 }, ctx.User);
     }
 
     async Task SeedProductsAsync()
     {
-        await this.store.Set("p1", new Product { Title = "Widget", Price = 9.99m }, ctx.Product);
-        await this.store.Set("p2", new Product { Title = "Gadget", Price = 24.99m }, ctx.Product);
-        await this.store.Set("p3", new Product { Title = "Doohickey", Price = 14.99m }, ctx.Product);
+        await this.store.Set(new Product { Id = "p1", Title = "Widget", Price = 9.99m }, ctx.Product);
+        await this.store.Set(new Product { Id = "p2", Title = "Gadget", Price = 24.99m }, ctx.Product);
+        await this.store.Set(new Product { Id = "p3", Title = "Doohickey", Price = 14.99m }, ctx.Product);
     }
 
     async Task SeedOrdersAsync()
     {
-        await this.store.Set("o1", new Order
+        await this.store.Set(new Order
         {
+            Id = "o1",
             CustomerName = "Alice",
             Status = "Shipped",
             ShippingAddress = new Address { Street = "123 Main St", City = "Portland", State = "OR", Zip = "97201" },
@@ -49,8 +50,9 @@ public class AggregateTests : IDisposable
             Tags = ["priority", "wholesale"]
         }, ctx.Order);
 
-        await this.store.Set("o2", new Order
+        await this.store.Set(new Order
         {
+            Id = "o2",
             CustomerName = "Bob",
             Status = "Pending",
             ShippingAddress = new Address { Street = "456 Oak Ave", City = "Seattle", State = "WA", Zip = "98101" },
@@ -61,8 +63,9 @@ public class AggregateTests : IDisposable
             Tags = ["retail"]
         }, ctx.Order);
 
-        await this.store.Set("o3", new Order
+        await this.store.Set(new Order
         {
+            Id = "o3",
             CustomerName = "Charlie",
             Status = "Shipped",
             ShippingAddress = new Address { Street = "789 Elm Blvd", City = "Portland", State = "OR", Zip = "97205" },

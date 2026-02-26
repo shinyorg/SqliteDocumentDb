@@ -17,6 +17,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     readonly DocumentStoreOptions options;
     readonly JsonSerializerOptions jsonOptions;
     readonly Action<string>? logging;
+    readonly IdAccessorCache idCache = new();
     bool initialized;
 
     public SqliteDocumentStore(DocumentStoreOptions options)
@@ -180,6 +181,33 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         return rows > 0;
     }
 
+    async Task<string> GenerateIdAsync(IdKind kind, string typeName, CancellationToken ct)
+    {
+        switch (kind)
+        {
+            case IdKind.Guid:
+                return Guid.NewGuid().ToString("N");
+
+            case IdKind.String:
+                return Guid.NewGuid().ToString();
+
+            case IdKind.Int:
+            case IdKind.Long:
+                await using (var cmd = this.connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT MAX(CAST(Id AS INTEGER)) FROM documents WHERE TypeName = @typeName;";
+                    cmd.Parameters.AddWithValue("@typeName", typeName);
+                    this.Log(cmd.CommandText);
+                    var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+                    var max = result is DBNull || result is null ? 0L : Convert.ToInt64(result);
+                    return (max + 1).ToString();
+                }
+
+            default:
+                throw new InvalidOperationException($"Unsupported Id kind: {kind}");
+        }
+    }
+
     // ── IQueryExecutor explicit implementation ──────────────────────────
 
     Task<TResult> IQueryExecutor.ExecuteAsync<TResult>(Func<Task<TResult>> operation, CancellationToken ct)
@@ -209,33 +237,40 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     // ── CRUD ────────────────────────────────────────────────────────────
 
-    public Task<string> Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+    public Task Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
         var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var accessor = this.idCache.GetOrCreate(typeInfo);
         return this.ExecuteAsync(async () =>
         {
-            var id = Guid.NewGuid().ToString("N");
+            string id;
+            if (accessor.IsDefaultId(document))
+            {
+                var typeName = this.ResolveTypeName<T>();
+                id = await this.GenerateIdAsync(accessor.Kind, typeName, cancellationToken).ConfigureAwait(false);
+                accessor.SetId(document, id);
+            }
+            else
+            {
+                id = accessor.GetIdAsString(document);
+            }
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
-            return id;
         }, cancellationToken);
     }
 
-    public Task Set<T>(string id, T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+    public Task Upsert<T>(T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
         var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var accessor = this.idCache.GetOrCreate(typeInfo);
         return this.ExecuteAsync(async () =>
         {
-            var json = SerializeDocument(document, typeInfo, this.jsonOptions);
-            await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
-        }, cancellationToken);
-    }
+            if (accessor.IsDefaultId(patch))
+                throw new InvalidOperationException(
+                    $"Upsert requires a non-default Id on the document. " +
+                    $"Set the Id property on '{typeof(T).Name}' before calling Upsert.");
 
-    public Task Upsert<T>(string id, T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
-    {
-        var typeInfo = FindTypeInfo(jsonTypeInfo);
-        return this.ExecuteAsync(async () =>
-        {
+            var id = accessor.GetIdAsString(patch);
             var json = SerializeDocument(patch, typeInfo, this.jsonOptions);
             await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
@@ -393,7 +428,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             await using var transaction = await this.connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var txStore = new TransactionalDocumentStore(this.connection, transaction, this.options, this.jsonOptions, this.logging);
+                var txStore = new TransactionalDocumentStore(this.connection, transaction, this.options, this.jsonOptions, this.logging, this.idCache);
                 await operation(txStore).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -585,19 +620,22 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         readonly DocumentStoreOptions options;
         readonly JsonSerializerOptions jsonOptions;
         readonly Action<string>? logging;
+        readonly IdAccessorCache idCache;
 
         public TransactionalDocumentStore(
             SqliteConnection connection,
             System.Data.Common.DbTransaction transaction,
             DocumentStoreOptions options,
             JsonSerializerOptions jsonOptions,
-            Action<string>? logging)
+            Action<string>? logging,
+            IdAccessorCache idCache)
         {
             this.connection = connection;
             this.transaction = transaction;
             this.options = options;
             this.jsonOptions = jsonOptions;
             this.logging = logging;
+            this.idCache = idCache;
         }
 
         void Log(string sql) => this.logging?.Invoke(sql);
@@ -728,25 +766,64 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             return rows > 0;
         }
 
-        public async Task<string> Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        async Task<string> GenerateIdAsync(IdKind kind, string typeName, CancellationToken ct)
         {
-            var typeInfo = FindTypeInfo(jsonTypeInfo);
-            var id = Guid.NewGuid().ToString("N");
-            var json = SerializeDocument(document, typeInfo, this.jsonOptions);
-            await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
-            return id;
+            switch (kind)
+            {
+                case IdKind.Guid:
+                    return Guid.NewGuid().ToString("N");
+
+                case IdKind.String:
+                    return Guid.NewGuid().ToString();
+
+                case IdKind.Int:
+                case IdKind.Long:
+                    await using (var cmd = this.CreateCommand())
+                    {
+                        cmd.CommandText = "SELECT MAX(CAST(Id AS INTEGER)) FROM documents WHERE TypeName = @typeName;";
+                        cmd.Parameters.AddWithValue("@typeName", typeName);
+                        this.Log(cmd.CommandText);
+                        var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+                        var max = result is DBNull || result is null ? 0L : Convert.ToInt64(result);
+                        return (max + 1).ToString();
+                    }
+
+                default:
+                    throw new InvalidOperationException($"Unsupported Id kind: {kind}");
+            }
         }
 
-        public async Task Set<T>(string id, T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        public async Task Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
             var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var accessor = this.idCache.GetOrCreate(typeInfo);
+
+            string id;
+            if (accessor.IsDefaultId(document))
+            {
+                var typeName = this.ResolveTypeName<T>();
+                id = await this.GenerateIdAsync(accessor.Kind, typeName, cancellationToken).ConfigureAwait(false);
+                accessor.SetId(document, id);
+            }
+            else
+            {
+                id = accessor.GetIdAsString(document);
+            }
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
             await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task Upsert<T>(string id, T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        public async Task Upsert<T>(T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
             var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var accessor = this.idCache.GetOrCreate(typeInfo);
+
+            if (accessor.IsDefaultId(patch))
+                throw new InvalidOperationException(
+                    $"Upsert requires a non-default Id on the document. " +
+                    $"Set the Id property on '{typeof(T).Name}' before calling Upsert.");
+
+            var id = accessor.GetIdAsString(patch);
             var json = SerializeDocument(patch, typeInfo, this.jsonOptions);
             await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }

@@ -12,29 +12,20 @@ public interface IDocumentStore
     IDocumentQuery<T> Query<T>(JsonTypeInfo<T>? jsonTypeInfo = null) where T : class;
 
     /// <summary>
-    /// Upserts a document with an auto-generated GUID key.
+    /// Upserts a document. The document must have a public Id property (Guid, int, long, or string).
+    /// If the Id is the default value, it will be auto-generated.
     /// </summary>
     /// <param name="document">The document to store.</param>
     /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
-    /// <returns>The generated document ID.</returns>
-    Task<string> Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
+    Task Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
-    /// Upserts a document with a user-provided key.
+    /// Upserts a document using RFC 7396 JSON Merge Patch. The document must have a non-default Id.
+    /// If the document exists, the patch is deep-merged into the existing JSON; if it doesn't exist, the patch is inserted as-is.
     /// </summary>
-    /// <param name="id">The document ID.</param>
-    /// <param name="document">The document to store.</param>
+    /// <param name="patch">The patch document to merge. Must have a non-default Id.</param>
     /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
-    Task Set<T>(string id, T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
-
-    /// <summary>
-    /// Upserts a document using RFC 7396 JSON Merge Patch. If the document exists, the patch
-    /// is deep-merged into the existing JSON; if it doesn't exist, the patch is inserted as-is.
-    /// </summary>
-    /// <param name="id">The document ID.</param>
-    /// <param name="patch">The patch document to merge.</param>
-    /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
-    Task Upsert<T>(string id, T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
+    Task Upsert<T>(T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Updates a single property on an existing document using json_set.

@@ -157,29 +157,30 @@ public class ChildCollectionReadBenchmarks
         var ctx = BenchmarkJsonContext.Default;
         for (var i = 0; i < 1000; i++)
         {
-            var id = await store.Set(CreateOrder(i), ctx.BenchmarkOrder);
-            if (i == 500) knownDocId = id;
+            var docOrder = CreateOrder(i);
+            await store.Set(docOrder, ctx.BenchmarkOrder);
+            if (i == 500) knownDocId = docOrder.Id;
 
-            var order = new SqliteOrder
+            var sqliteOrder = new SqliteOrder
             {
                 DocId = Guid.NewGuid().ToString("N"),
                 CustomerName = $"Customer_{i}",
                 Status = i % 2 == 0 ? "Shipped" : "Pending",
                 Street = $"{i} Main St", City = "Springfield", State = "IL", Zip = "62704"
             };
-            await db.InsertAsync(order);
-            if (i == 500) knownSqliteOrderId = order.Id;
+            await db.InsertAsync(sqliteOrder);
+            if (i == 500) knownSqliteOrderId = sqliteOrder.Id;
 
             for (var j = 0; j < 3; j++)
             {
                 await db.InsertAsync(new SqliteOrderLine
                 {
-                    OrderId = order.Id, ProductName = $"Product_{j}",
+                    OrderId = sqliteOrder.Id, ProductName = $"Product_{j}",
                     Quantity = j + 1, UnitPrice = 9.99m + j
                 });
             }
-            await db.InsertAsync(new SqliteOrderTag { OrderId = order.Id, Tag = "priority" });
-            await db.InsertAsync(new SqliteOrderTag { OrderId = order.Id, Tag = $"region-{i % 5}" });
+            await db.InsertAsync(new SqliteOrderTag { OrderId = sqliteOrder.Id, Tag = "priority" });
+            await db.InsertAsync(new SqliteOrderTag { OrderId = sqliteOrder.Id, Tag = $"region-{i % 5}" });
         }
     }
 

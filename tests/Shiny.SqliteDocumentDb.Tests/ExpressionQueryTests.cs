@@ -22,15 +22,16 @@ public class ExpressionQueryTests : IDisposable
 
     async Task SeedUsersAsync()
     {
-        await this.store.Set("u1", new User { Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
-        await this.store.Set("u2", new User { Name = "Bob", Age = 35 }, ctx.User);
-        await this.store.Set("u3", new User { Name = "Charlie", Age = 25 }, ctx.User);
+        await this.store.Set(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
+        await this.store.Set(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
+        await this.store.Set(new User { Id = "u3", Name = "Charlie", Age = 25 }, ctx.User);
     }
 
     async Task SeedOrdersAsync()
     {
-        await this.store.Set("o1", new Order
+        await this.store.Set(new Order
         {
+            Id = "o1",
             CustomerName = "Alice",
             Status = "Shipped",
             ShippingAddress = new Address { Street = "123 Main St", City = "Portland", State = "OR", Zip = "97201" },
@@ -42,8 +43,9 @@ public class ExpressionQueryTests : IDisposable
             Tags = ["priority", "wholesale"]
         }, ctx.Order);
 
-        await this.store.Set("o2", new Order
+        await this.store.Set(new Order
         {
+            Id = "o2",
             CustomerName = "Bob",
             Status = "Pending",
             ShippingAddress = new Address { Street = "456 Oak Ave", City = "Seattle", State = "WA", Zip = "98101" },
@@ -54,8 +56,9 @@ public class ExpressionQueryTests : IDisposable
             Tags = ["retail"]
         }, ctx.Order);
 
-        await this.store.Set("o3", new Order
+        await this.store.Set(new Order
         {
+            Id = "o3",
             CustomerName = "Charlie",
             Status = "Shipped",
             ShippingAddress = new Address { Street = "789 Elm Blvd", City = "Portland", State = "OR", Zip = "97205" },
@@ -271,8 +274,9 @@ public class ExpressionQueryTests : IDisposable
     [Fact]
     public async Task Query_Any_NoPredicate_EmptyCollection()
     {
-        await this.store.Set("o_empty", new Order
+        await this.store.Set(new Order
         {
+            Id = "o_empty",
             CustomerName = "Empty",
             Status = "Draft",
             ShippingAddress = new Address { Street = "", City = "", State = "", Zip = "" },
@@ -280,8 +284,9 @@ public class ExpressionQueryTests : IDisposable
             Tags = []
         }, ctx.Order);
 
-        await this.store.Set("o_full", new Order
+        await this.store.Set(new Order
         {
+            Id = "o_full",
             CustomerName = "Full",
             Status = "Active",
             ShippingAddress = new Address { Street = "1 St", City = "X", State = "Y", Zip = "0" },
@@ -434,22 +439,25 @@ public class ExpressionQueryTests : IDisposable
 
     async Task SeedEventsAsync()
     {
-        await this.store.Set("e1", new Event
+        await this.store.Set(new Event
         {
+            Id = "e1",
             Title = "Past",
             StartDate = new DateTime(2024, 1, 15, 10, 0, 0, DateTimeKind.Utc),
             CreatedAt = new DateTimeOffset(2024, 1, 10, 8, 0, 0, TimeSpan.Zero)
         }, ctx.Event);
 
-        await this.store.Set("e2", new Event
+        await this.store.Set(new Event
         {
+            Id = "e2",
             Title = "Present",
             StartDate = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc),
             CreatedAt = new DateTimeOffset(2025, 5, 20, 9, 0, 0, TimeSpan.Zero)
         }, ctx.Event);
 
-        await this.store.Set("e3", new Event
+        await this.store.Set(new Event
         {
+            Id = "e3",
             Title = "Future",
             StartDate = new DateTime(2026, 12, 25, 18, 0, 0, DateTimeKind.Utc),
             CreatedAt = new DateTimeOffset(2026, 11, 1, 14, 0, 0, TimeSpan.Zero)

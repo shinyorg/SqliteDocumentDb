@@ -15,7 +15,8 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 - **SQL-level projections** — project into DTOs with `json_object` at the database level via `.Select()`. No full document deserialization needed.
 - **Full AOT/trimming support** — every API has an optional `JsonTypeInfo<T>` parameter for source-generated JSON serialization. No reflection required. Configure a `JsonSerializerContext` once and all methods auto-resolve type info — no per-call `JsonTypeInfo<T>` needed. Set `UseReflectionFallback = false` to catch missing type registrations with clear exceptions instead of opaque AOT failures.
 - **10-30x faster nested inserts** vs sqlite-net — one write per document vs multiple table inserts with foreign keys. 2-10x faster reads on nested data.
-- **JSON Merge Patch (Upsert)** — `store.Upsert("id", patch)` deep-merges a partial object into an existing document using SQLite's `json_patch()` (RFC 7396). Only patched fields are overwritten; unset nullable fields are preserved.
+- **Mandatory typed Id property** — every document type must have a `public {Guid|int|long|string} Id { get; set; }` property. Ids are auto-generated when default (Guid.Empty, 0, null/empty string) and written back to the object. The Id lives in both the SQLite column and the JSON blob, so query results always include it.
+- **JSON Merge Patch (Upsert)** — `store.Upsert(patch)` deep-merges a partial object into an existing document using SQLite's `json_patch()` (RFC 7396). The Id comes from the object. Only patched fields are overwritten; unset nullable fields are preserved.
 - **Surgical field updates** — `store.SetProperty<User>("id", u => u.Age, 31)` updates a single JSON field via `json_set()` without deserializing the document. `store.RemoveProperty<User>("id", u => u.Email)` strips a field via `json_remove()`. Both support nested paths like `o => o.ShippingAddress.City`.
 - **Pagination** — `store.Query<User>().OrderBy(u => u.Name).Paginate(0, 20).ToList()` translates to SQL `LIMIT`/`OFFSET`.
 - **Transactions** — `store.RunInTransaction(async tx => { ... })` with automatic commit/rollback.
@@ -331,9 +332,8 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 | With explicit `JsonTypeInfo<T>` | With auto-resolution (recommended) |
 |---|---|
 | `store.Set(user, ctx.User)` | `store.Set(user)` |
-| `store.Set("id", user, ctx.User)` | `store.Set("id", user)` |
 | `store.Get("id", ctx.User)` | `store.Get<User>("id")` |
-| `store.Upsert("id", patch, ctx.User)` | `store.Upsert("id", patch)` |
+| `store.Upsert(patch, ctx.User)` | `store.Upsert(patch)` |
 | `store.SetProperty("id", (User u) => u.Age, 31, ctx.User)` | `store.SetProperty<User>("id", u => u.Age, 31)` |
 | `store.RemoveProperty("id", (User u) => u.Email, ctx.User)` | `store.RemoveProperty<User>("id", u => u.Email)` |
 | `store.Query(ctx.User)` | `store.Query<User>()` |
@@ -344,10 +344,11 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 
 ```csharp
 // All of these are AOT-safe when ctx.Options is configured
-var id = await store.Set(new User { Name = "Alice", Age = 25 });
-var user = await store.Get<User>(id);
+var user = new User { Name = "Alice", Age = 25 };
+await store.Set(user); // user.Id is auto-generated
+var fetched = await store.Get<User>(user.Id);
 var all = await store.Query<User>().ToList();
-await store.Upsert("user-1", new User { Name = "Alice", Age = 30 });
+await store.Upsert(new User { Id = user.Id, Name = "Alice", Age = 30 });
 
 var results = await store.Query<User>(
     "json_extract(Data, '$.age') > @minAge",
@@ -374,30 +375,57 @@ Register it in your JsonSerializerContext or pass a JsonTypeInfo<UnregisteredTyp
 
 This tells you exactly which type is missing and what to do about it. Every type must either be registered in your `JsonSerializerContext` via `[JsonSerializable(typeof(T))]` or passed with an explicit `JsonTypeInfo<T>` parameter.
 
+## Document Types
+
+Every document type must have a public `Id` property of type `Guid`, `int`, `long`, or `string`. The Id is stored in both the SQLite `Id` column and inside the JSON blob, so query results always include it.
+
+```csharp
+public class User
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int Age { get; set; }
+    public string? Email { get; set; }
+}
+```
+
+### Auto-generation rules
+
+| Id CLR Type | Default Value | Auto-Gen Strategy |
+|-------------|--------------|-------------------|
+| `Guid` | `Guid.Empty` | `Guid.NewGuid()` |
+| `string` | `null` or `""` | `Guid.NewGuid().ToString("N")` |
+| `int` | `0` | `MAX(CAST(Id AS INTEGER)) + 1` per TypeName |
+| `long` | `0` | `MAX(CAST(Id AS INTEGER)) + 1` per TypeName |
+
+When `Set` is called with a default Id, the store auto-generates one and writes it back to the object. When a non-default Id is provided, it is used as-is.
+
 ## Basic CRUD Operations
 
 ### Store a document (auto-generated ID)
 
 ```csharp
-var id = await store.Set(new User { Name = "Alice", Age = 25 });
+var user = new User { Name = "Alice", Age = 25 };
+await store.Set(user);
+// user.Id is now populated
 ```
 
 ### Store a document (explicit ID)
 
 ```csharp
-await store.Set("user-1", new User { Name = "Alice", Age = 25 });
+await store.Set(new User { Id = "user-1", Name = "Alice", Age = 25 });
 ```
 
 ### Upsert with JSON Merge Patch
 
-`Upsert` uses SQLite's `json_patch()` (RFC 7396 JSON Merge Patch) to deep-merge a partial patch into an existing document. If the document doesn't exist, it is inserted as-is. Unlike `Set`, which replaces the entire document, `Upsert` only overwrites the fields present in the patch.
+`Upsert` uses SQLite's `json_patch()` (RFC 7396 JSON Merge Patch) to deep-merge a partial patch into an existing document. If the document doesn't exist, it is inserted as-is. Unlike `Set`, which replaces the entire document, `Upsert` only overwrites the fields present in the patch. The document must have a non-default Id.
 
 ```csharp
 // Insert a full document
-await store.Set("user-1", new User { Name = "Alice", Age = 25, Email = "alice@test.com" });
+await store.Set(new User { Id = "user-1", Name = "Alice", Age = 25, Email = "alice@test.com" });
 
 // Merge patch — only update Name and Age, preserve Email
-await store.Upsert("user-1", new User { Name = "Alice", Age = 30 });
+await store.Upsert(new User { Id = "user-1", Name = "Alice", Age = 30 });
 
 var user = await store.Get<User>("user-1");
 // user.Name == "Alice", user.Age == 30, user.Email == "alice@test.com" (preserved)
@@ -924,8 +952,8 @@ await foreach (var user in store.QueryStream<User>(
 ```csharp
 await store.RunInTransaction(async tx =>
 {
-    await tx.Set("u1", new User { Name = "Alice", Age = 25 });
-    await tx.Set("u2", new User { Name = "Bob", Age = 30 });
+    await tx.Set(new User { Id = "u1", Name = "Alice", Age = 25 });
+    await tx.Set(new User { Id = "u2", Name = "Bob", Age = 30 });
     // Commits on success, rolls back on exception
 });
 ```

@@ -22,9 +22,9 @@ public class OrderByTests : IDisposable
 
     async Task SeedUsersAsync()
     {
-        await this.store.Set("u1", new User { Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
-        await this.store.Set("u2", new User { Name = "Bob", Age = 35 }, ctx.User);
-        await this.store.Set("u3", new User { Name = "Charlie", Age = 30 }, ctx.User);
+        await this.store.Set(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
+        await this.store.Set(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
+        await this.store.Set(new User { Id = "u3", Name = "Charlie", Age = 30 }, ctx.User);
     }
 
     // ── ToList ──────────────────────────────────────────────────

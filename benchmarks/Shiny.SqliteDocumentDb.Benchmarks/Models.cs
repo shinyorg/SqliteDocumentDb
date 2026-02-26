@@ -5,6 +5,7 @@ namespace Shiny.SqliteDocumentDb.Benchmarks;
 
 public class BenchmarkUser
 {
+    public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public int Age { get; set; }
     public string? Email { get; set; }
@@ -41,6 +42,7 @@ public class BenchmarkOrderLine
 
 public class BenchmarkOrder
 {
+    public string Id { get; set; } = "";
     public string CustomerName { get; set; } = "";
     public string Status { get; set; } = "";
     public BenchmarkAddress ShippingAddress { get; set; } = new();

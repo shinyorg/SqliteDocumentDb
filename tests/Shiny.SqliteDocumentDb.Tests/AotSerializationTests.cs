@@ -21,9 +21,9 @@ public class AotSerializationTests : IDisposable
     public async Task Set_And_Get_WithJsonTypeInfo()
     {
         var user = new User { Name = "Allan", Age = 30, Email = "allan@test.com" };
-        var id = await this.store.Set(user, TestJsonContext.Default.User);
+        await this.store.Set(user, TestJsonContext.Default.User);
 
-        var result = await this.store.Get(id, TestJsonContext.Default.User);
+        var result = await this.store.Get(user.Id, TestJsonContext.Default.User);
 
         Assert.NotNull(result);
         Assert.Equal("Allan", result.Name);
@@ -33,7 +33,7 @@ public class AotSerializationTests : IDisposable
     [Fact]
     public async Task Set_WithExplicitId_And_Get_WithJsonTypeInfo()
     {
-        await this.store.Set("user-aot", new User { Name = "AOT User" }, TestJsonContext.Default.User);
+        await this.store.Set(new User { Id = "user-aot", Name = "AOT User" }, TestJsonContext.Default.User);
 
         var result = await this.store.Get("user-aot", TestJsonContext.Default.User);
 
@@ -44,8 +44,8 @@ public class AotSerializationTests : IDisposable
     [Fact]
     public async Task Query_ReturnsAll_WithJsonTypeInfo()
     {
-        await this.store.Set("u1", new User { Name = "Alice" }, TestJsonContext.Default.User);
-        await this.store.Set("u2", new User { Name = "Bob" }, TestJsonContext.Default.User);
+        await this.store.Set(new User { Id = "u1", Name = "Alice" }, TestJsonContext.Default.User);
+        await this.store.Set(new User { Id = "u2", Name = "Bob" }, TestJsonContext.Default.User);
 
         var results = await this.store.Query(TestJsonContext.Default.User).ToList();
 
@@ -55,8 +55,8 @@ public class AotSerializationTests : IDisposable
     [Fact]
     public async Task Query_WithJsonTypeInfo()
     {
-        await this.store.Set("u1", new User { Name = "Alice", Age = 25 }, TestJsonContext.Default.User);
-        await this.store.Set("u2", new User { Name = "Bob", Age = 35 }, TestJsonContext.Default.User);
+        await this.store.Set(new User { Id = "u1", Name = "Alice", Age = 25 }, TestJsonContext.Default.User);
+        await this.store.Set(new User { Id = "u2", Name = "Bob", Age = 35 }, TestJsonContext.Default.User);
 
         var results = await this.store.Query(
             "json_extract(Data, '$.Name') = @name",
@@ -70,7 +70,7 @@ public class AotSerializationTests : IDisposable
     [Fact]
     public async Task Product_WithJsonTypeInfo()
     {
-        await this.store.Set("p1", new Product { Title = "Widget", Price = 9.99m }, TestJsonContext.Default.Product);
+        await this.store.Set(new Product { Id = "p1", Title = "Widget", Price = 9.99m }, TestJsonContext.Default.Product);
 
         var result = await this.store.Get("p1", TestJsonContext.Default.Product);
 

@@ -2,6 +2,7 @@ namespace Shiny.SqliteDocumentDb.Tests.Fixtures;
 
 public class User
 {
+    public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public int Age { get; set; }
     public string? Email { get; set; }
@@ -9,6 +10,7 @@ public class User
 
 public class Product
 {
+    public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public decimal Price { get; set; }
 }
@@ -23,6 +25,7 @@ public class Address
 
 public class Event
 {
+    public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public DateTime StartDate { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
@@ -37,6 +40,7 @@ public class OrderLine
 
 public class Order
 {
+    public string Id { get; set; } = "";
     public string CustomerName { get; set; } = "";
     public string Status { get; set; } = "";
     public Address ShippingAddress { get; set; } = new();
@@ -86,4 +90,41 @@ public class PriceSummary
     public decimal MinPrice { get; set; }
     public decimal SumPrice { get; set; }
     public double AvgPrice { get; set; }
+}
+
+// ── Test-only models for Id type coverage ───────────────────────────
+
+public class GuidIdModel
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+}
+
+public class IntIdModel
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+}
+
+public class LongIdModel
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+}
+
+public class StringIdModel
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+}
+
+public class NoIdModel
+{
+    public string Name { get; set; } = "";
+}
+
+public class BadIdTypeModel
+{
+    public decimal Id { get; set; }
+    public string Name { get; set; } = "";
 }
