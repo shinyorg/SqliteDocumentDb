@@ -75,7 +75,7 @@ If you are building a .NET MAUI app and need local data persistence, this librar
 
 ## Benchmarks
 
-Measured with [BenchmarkDotNet](https://benchmarkdotnet.org/) v0.14.0 on Apple M2, .NET 10.0.3, macOS. Full source in [`benchmarks/`](benchmarks/).
+Measured with [BenchmarkDotNet](https://benchmarkdotnet.org/) v0.15.8 on Apple M2, .NET 10.0.3, macOS. Full source in [`benchmarks/`](benchmarks/).
 
 ### Flat POCO (single table)
 
@@ -83,35 +83,35 @@ Measured with [BenchmarkDotNet](https://benchmarkdotnet.org/) v0.14.0 on Apple M
 
 | Method | Count | Mean |
 |---|---|---|
-| DocumentStore Insert | 10 | 652 us |
-| sqlite-net Insert | 10 | 2,256 us |
-| DocumentStore Insert | 100 | 4.6 ms |
-| sqlite-net Insert | 100 | 23.9 ms |
-| DocumentStore Insert | 1000 | 50.0 ms |
-| sqlite-net Insert | 1000 | 533 ms |
+| DocumentStore Insert | 10 | 572 us |
+| sqlite-net Insert | 10 | 3.02 ms |
+| DocumentStore Insert | 100 | 5.24 ms |
+| sqlite-net Insert | 100 | 26.36 ms |
+| DocumentStore Insert | 1000 | 52.52 ms |
+| sqlite-net Insert | 1000 | 260.29 ms |
 
 #### Get by ID
 
 | Method | Mean | Allocated |
 |---|---|---|
-| DocumentStore GetById | 3.70 us | 1.8 KB |
-| sqlite-net GetById | 16.20 us | 3.73 KB |
+| DocumentStore GetById | 3.75 us | 1.99 KB |
+| sqlite-net GetById | 16.18 us | 3.73 KB |
 
 #### Get all
 
 | Method | Count | Mean | Allocated |
 |---|---|---|---|
-| DocumentStore GetAll | 100 | 40.5 us | 29.4 KB |
-| sqlite-net GetAll | 100 | 73.1 us | 28.4 KB |
-| DocumentStore GetAll | 1000 | 377 us | 283 KB |
-| sqlite-net GetAll | 1000 | 457 us | 246 KB |
+| DocumentStore GetAll | 100 | 46.10 us | 48.47 KB |
+| sqlite-net GetAll | 100 | 80.27 us | 28.37 KB |
+| DocumentStore GetAll | 1000 | 437.16 us | 470.35 KB |
+| sqlite-net GetAll | 1000 | 464.82 us | 246.35 KB |
 
 #### Query (filter by name, 1000 records)
 
 | Method | Mean | Allocated |
 |---|---|---|
-| DocumentStore Query | 243 us | 4.1 KB |
-| sqlite-net Query | 59 us | 5.3 KB |
+| DocumentStore Query | 269.75 us | 4.86 KB |
+| sqlite-net Query | 59.20 us | 5.33 KB |
 
 > sqlite-net is faster for simple indexed-column queries because it queries column values directly, while the document store must use `json_extract`. The document store shines with nested data (see below).
 
@@ -123,35 +123,35 @@ This is where the document store architecture pays off. sqlite-net requires 3 ta
 
 | Method | Count | Mean |
 |---|---|---|
-| DocumentStore Insert (nested) | 10 | 1.3 ms |
-| sqlite-net Insert (3 tables) | 10 | 15.2 ms |
-| DocumentStore Insert (nested) | 100 | 5.0 ms |
-| sqlite-net Insert (3 tables) | 100 | 170 ms |
-| DocumentStore Insert (nested) | 1000 | 51.7 ms |
-| sqlite-net Insert (3 tables) | 1000 | 1,638 ms |
+| DocumentStore Insert (nested) | 10 | 686 us |
+| sqlite-net Insert (3 tables) | 10 | 17.26 ms |
+| DocumentStore Insert (nested) | 100 | 5.69 ms |
+| sqlite-net Insert (3 tables) | 100 | 176.48 ms |
+| DocumentStore Insert (nested) | 1000 | 55.62 ms |
+| sqlite-net Insert (3 tables) | 1000 | 2.58 s |
 
 #### Get by ID (nested)
 
 | Method | Mean | Allocated |
 |---|---|---|
-| DocumentStore GetById (nested) | 4.8 us | 3.7 KB |
-| sqlite-net GetById (3 queries) | 48.6 us | 16.1 KB |
+| DocumentStore GetById (nested) | 5.04 us | 3.88 KB |
+| sqlite-net GetById (3 queries) | 48.26 us | 16.05 KB |
 
 #### Get all (nested)
 
 | Method | Count | Mean | Allocated |
 |---|---|---|---|
-| DocumentStore GetAll (nested) | 100 | 141 us | 218 KB |
-| sqlite-net GetAll (3 tables + rehydrate) | 100 | 329 us | 159 KB |
-| DocumentStore GetAll (nested) | 1000 | 1,530 us | 2,165 KB |
-| sqlite-net GetAll (3 tables + rehydrate) | 1000 | 2,700 us | 1,438 KB |
+| DocumentStore GetAll (nested) | 100 | 148 us | 237 KB |
+| sqlite-net GetAll (3 tables + rehydrate) | 100 | 326 us | 159 KB |
+| DocumentStore GetAll (nested) | 1000 | 1.67 ms | 2,353 KB |
+| sqlite-net GetAll (3 tables + rehydrate) | 1000 | 2.75 ms | 1,438 KB |
 
 #### Query (nested, filter by status)
 
 | Method | Mean | Allocated |
 |---|---|---|
-| DocumentStore Query (nested, by status) | 1.38 ms | 1,086 KB |
-| sqlite-net Query (3 tables + rehydrate) | 2.23 ms | 1,013 KB |
+| DocumentStore Query (nested, by status) | 1.45 ms | 1,180 KB |
+| sqlite-net Query (3 tables + rehydrate) | 2.27 ms | 1,013 KB |
 
 > For nested data, the document store is **10-30x faster on inserts** and **2-10x faster on reads** because it stores/retrieves the entire object graph in a single operation vs. multiple table writes and JOINs.
 
@@ -163,17 +163,17 @@ JSON property indexes (`CreateIndexAsync`) dramatically speed up equality querie
 
 | Method | Mean | Allocated |
 |---|---|---|
-| Query without index | 274 us | 4.2 KB |
-| Query with index | 9.2 us | 4.1 KB |
+| Query without index | 270 us | 4.71 KB |
+| Query with index | 8.52 us | 4.71 KB |
 
-> **~30x faster** — the indexed query resolves in microseconds because SQLite uses the partial index directly.
+> **~32x faster** — the indexed query resolves in microseconds because SQLite uses the partial index directly.
 
 #### Nested query (filter by ShippingAddress.City, 1000 records, ~200 matches)
 
 | Method | Mean | Allocated |
 |---|---|---|
-| Nested query without index | 971 us | 435 KB |
-| Nested query with index | 310 us | 435 KB |
+| Nested query without index | 992 us | 473 KB |
+| Nested query with index | 326 us | 473 KB |
 
 > **~3x faster** — the index eliminates the full table scan, but read + deserialize time for ~200 matching documents dominates. Indexes give the biggest wins on selective queries that return few results.
 
@@ -185,26 +185,26 @@ Streaming yields results one-at-a-time without building an intermediate `List<T>
 
 | Method | Count | Mean | Gen1 | Allocated |
 |---|---|---|---|---|
-| ToList (buffered) | 100 | 44.1 us | 0.18 | 29.4 KB |
-| ToAsyncEnumerable (IAsyncEnumerable) | 100 | 42.7 us | — | 27.3 KB |
-| ToList (buffered) | 1000 | 384 us | 12.2 | 283 KB |
-| ToAsyncEnumerable (IAsyncEnumerable) | 1000 | 393 us | — | 266 KB |
+| ToList (buffered) | 100 | 46.26 us | 0.49 | 48.47 KB |
+| ToAsyncEnumerable (streaming) | 100 | 47.07 us | — | 46.35 KB |
+| ToList (buffered) | 1000 | 439.63 us | 21.00 | 470.35 KB |
+| ToAsyncEnumerable (streaming) | 1000 | 456.58 us | — | 454.16 KB |
 
 #### Nested objects
 
 | Method | Count | Mean | Gen1 | Allocated |
 |---|---|---|---|---|
-| ToList nested (buffered) | 100 | 154 us | 6.1 | 218 KB |
-| ToAsyncEnumerable nested (IAsyncEnumerable) | 100 | 156 us | — | 216 KB |
-| ToList nested (buffered) | 1000 | 1,541 us | 130.9 | 2,165 KB |
-| ToAsyncEnumerable nested (IAsyncEnumerable) | 1000 | 1,512 us | 2.0 | 2,149 KB |
+| ToList nested (buffered) | 100 | 147.80 us | 6.84 | 236.67 KB |
+| ToAsyncEnumerable nested (streaming) | 100 | 150.50 us | 0.24 | 234.55 KB |
+| ToList nested (buffered) | 1000 | 1.62 ms | 134.77 | 2,353 KB |
+| ToAsyncEnumerable nested (streaming) | 1000 | 1.43 ms | 1.95 | 2,337 KB |
 
 #### Nested query (filter by status, ~500 matches from 1000)
 
 | Method | Mean | Gen1 | Allocated |
 |---|---|---|---|
-| Query nested (buffered) | 1.49 ms | 58.6 | 1.06 MB |
-| QueryStream nested (IAsyncEnumerable) | 1.43 ms | — | 1.05 MB |
+| Query Where ToList (buffered) | 1.41 ms | 70.31 | 1,180 KB |
+| Query Where ToAsyncEnumerable (streaming) | 1.39 ms | — | 1,172 KB |
 
 > Streaming eliminates Gen1 GC collections entirely at scale. Throughput is within ~2% of buffered. Use streaming when you process results incrementally rather than needing the full list upfront.
 
