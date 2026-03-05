@@ -112,6 +112,23 @@ internal sealed class IdAccessor<T> where T : class
     };
 }
 
+internal static class IdHelper
+{
+    internal static string ResolveIdToString(object id)
+    {
+        return id switch
+        {
+            Guid g => g.ToString("N"),
+            int i => i.ToString(),
+            long l => l.ToString(),
+            string s => s,
+            _ => throw new ArgumentException(
+                $"Unsupported Id type '{id.GetType().Name}'. Supported types are: Guid, int, long, string.",
+                nameof(id))
+        };
+    }
+}
+
 internal sealed class IdAccessorCache
 {
     readonly ConcurrentDictionary<Type, object> cache = new();

@@ -40,28 +40,28 @@ public interface IDocumentStore
     /// <summary>
     /// Updates a single property on an existing document using json_set.
     /// </summary>
-    /// <param name="id">The document ID.</param>
+    /// <param name="id">The document ID (Guid, int, long, or string). Throws <see cref="ArgumentException"/> for unsupported types.</param>
     /// <param name="property">Expression selecting the property to set.</param>
     /// <param name="value">The new value.</param>
     /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
     /// <returns>True if a document was updated, false if not found.</returns>
-    Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
+    Task<bool> SetProperty<T>(object id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Removes a single property from an existing document using json_remove.
     /// </summary>
-    /// <param name="id">The document ID.</param>
+    /// <param name="id">The document ID (Guid, int, long, or string). Throws <see cref="ArgumentException"/> for unsupported types.</param>
     /// <param name="property">Expression selecting the property to remove.</param>
     /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
     /// <returns>True if a document was updated, false if not found.</returns>
-    Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
+    Task<bool> RemoveProperty<T>(object id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Gets a document by ID.
     /// </summary>
-    /// <param name="id">The document ID.</param>
+    /// <param name="id">The document ID (Guid, int, long, or string). Throws <see cref="ArgumentException"/> for unsupported types.</param>
     /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
-    Task<T?> Get<T>(string id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
+    Task<T?> Get<T>(object id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Queries documents using a SQL WHERE clause fragment with json_extract.
@@ -87,8 +87,9 @@ public interface IDocumentStore
     /// <summary>
     /// Removes a document by ID.
     /// </summary>
+    /// <param name="id">The document ID (Guid, int, long, or string). Throws <see cref="ArgumentException"/> for unsupported types.</param>
     /// <returns>True if a document was deleted.</returns>
-    Task<bool> Remove<T>(string id, CancellationToken cancellationToken = default) where T : class;
+    Task<bool> Remove<T>(object id, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Removes all documents of the specified type.

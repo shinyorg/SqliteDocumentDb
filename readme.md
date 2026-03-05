@@ -18,6 +18,7 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 - **Mandatory typed Id property** — every document type must have a `public {Guid|int|long|string} Id { get; set; }` property. Ids are auto-generated when default (Guid.Empty, 0, null/empty string) and written back to the object. The Id lives in both the SQLite column and the JSON blob, so query results always include it.
 - **JSON Merge Patch (Upsert)** — `store.Upsert(patch)` deep-merges a partial object into an existing document using SQLite's `json_patch()` (RFC 7396). The Id comes from the object. Only patched fields are overwritten; unset nullable fields are preserved.
 - **Surgical field updates** — `store.SetProperty<User>("id", u => u.Age, 31)` updates a single JSON field via `json_set()` without deserializing the document. `store.RemoveProperty<User>("id", u => u.Email)` strips a field via `json_remove()`. Both support nested paths like `o => o.ShippingAddress.City`.
+- **Typed Id lookups** — `Get`, `Remove`, `SetProperty`, and `RemoveProperty` accept the Id as `object` so you can pass a `Guid`, `int`, `long`, or `string` directly. Unsupported types throw `ArgumentException`.
 - **Pagination** — `store.Query<User>().OrderBy(u => u.Name).Paginate(0, 20).ToList()` translates to SQL `LIMIT`/`OFFSET`.
 - **Transactions** — `store.RunInTransaction(async tx => { ... })` with automatic commit/rollback.
 
@@ -336,6 +337,8 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 | `store.Upsert(patch, ctx.User)` | `store.Upsert(patch)` |
 | `store.SetProperty("id", (User u) => u.Age, 31, ctx.User)` | `store.SetProperty<User>("id", u => u.Age, 31)` |
 | `store.RemoveProperty("id", (User u) => u.Email, ctx.User)` | `store.RemoveProperty<User>("id", u => u.Email)` |
+
+> **Note:** `Get`, `Remove`, `SetProperty`, and `RemoveProperty` accept the Id as `object` — you can pass a `Guid`, `int`, `long`, or `string` directly. Passing an unsupported type throws `ArgumentException`.
 | `store.Query(ctx.User)` | `store.Query<User>()` |
 | `store.Query<User>("sql", ctx.User, parms)` | `store.Query<User>("sql", parameters: parms)` |
 | `store.QueryStream<User>("sql", ctx.User, parms)` | `store.QueryStream<User>("sql", parameters: parms)` |
@@ -520,14 +523,21 @@ Unlike `SetProperty`, `RemoveProperty` works on any property type — scalar, ne
 
 ### Get a document by ID
 
+The `id` parameter accepts `Guid`, `int`, `long`, or `string`. Passing an unsupported type throws `ArgumentException`.
+
 ```csharp
 var user = await store.Get<User>("user-1");
+
+// Guid, int, and long Ids work directly — no ToString() needed
+var item = await store.Get<GuidIdModel>(myGuid);
+var order = await store.Get<IntIdModel>(42);
 ```
 
 ### Remove a document
 
 ```csharp
 bool deleted = await store.Remove<User>("user-1");
+bool removed = await store.Remove<GuidIdModel>(myGuid);
 ```
 
 ### Clear all documents of a type

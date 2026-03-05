@@ -43,7 +43,7 @@ public class IdAutoGenerationTests : IDisposable
 
         Assert.Equal(explicitId, model.Id);
 
-        var result = await this.store.Get<GuidIdModel>(explicitId.ToString("N"), ctx.GuidIdModel);
+        var result = await this.store.Get<GuidIdModel>(explicitId, ctx.GuidIdModel);
         Assert.NotNull(result);
         Assert.Equal("Explicit", result.Name);
         Assert.Equal(explicitId, result.Id);
@@ -122,7 +122,7 @@ public class IdAutoGenerationTests : IDisposable
 
         Assert.Equal(42, model.Id);
 
-        var result = await this.store.Get<IntIdModel>("42", ctx.IntIdModel);
+        var result = await this.store.Get<IntIdModel>(42, ctx.IntIdModel);
         Assert.NotNull(result);
         Assert.Equal("Explicit", result.Name);
         Assert.Equal(42, result.Id);
@@ -163,7 +163,7 @@ public class IdAutoGenerationTests : IDisposable
 
         Assert.Equal(999L, model.Id);
 
-        var result = await this.store.Get<LongIdModel>("999", ctx.LongIdModel);
+        var result = await this.store.Get<LongIdModel>(999L, ctx.LongIdModel);
         Assert.NotNull(result);
         Assert.Equal("Explicit", result.Name);
     }

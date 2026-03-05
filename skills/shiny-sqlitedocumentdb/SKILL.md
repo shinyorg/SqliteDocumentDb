@@ -180,8 +180,14 @@ await store.Insert(new User { Id = "user-1", Name = "Alice", Age = 25 });
 
 ### Get
 
+The `id` parameter accepts `Guid`, `int`, `long`, or `string`. Passing an unsupported type throws `ArgumentException`.
+
 ```csharp
 var user = await store.Get<User>("user-1");
+
+// Guid, int, and long Ids work directly — no ToString() needed
+var item = await store.Get<GuidIdModel>(myGuid);
+var order = await store.Get<IntIdModel>(42);
 ```
 
 ### Upsert (JSON Merge Patch)
@@ -193,6 +199,8 @@ await store.Upsert(new User { Id = "user-1", Name = "Alice", Age = 30 });
 ```
 
 ### SetProperty / RemoveProperty
+
+The `id` parameter accepts `Guid`, `int`, `long`, or `string`. Passing an unsupported type throws `ArgumentException`.
 
 ```csharp
 // Update a single field via json_set — no deserialization
@@ -207,9 +215,12 @@ await store.RemoveProperty<User>("user-1", u => u.Email);
 
 ### Remove / Clear
 
+The `id` parameter accepts `Guid`, `int`, `long`, or `string`. Passing an unsupported type throws `ArgumentException`.
+
 ```csharp
 // By ID
 bool deleted = await store.Remove<User>("user-1");
+bool removed = await store.Remove<GuidIdModel>(myGuid);
 
 // Clear all documents of a type
 int deletedCount = await store.Clear<User>();

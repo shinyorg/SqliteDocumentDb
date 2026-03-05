@@ -325,30 +325,35 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         }, cancellationToken);
     }
 
-    public Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+    public Task<bool> SetProperty<T>(object id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
-        var jsonPath = ResolvePropertyPath(property, this.jsonOptions, FindTypeInfo(jsonTypeInfo));
+        var resolvedId = IdHelper.ResolveIdToString(id);
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
         return this.ExecuteAsync(
-            () => this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken),
+            () => this.SetPropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken),
             cancellationToken);
     }
 
-    public Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+    public Task<bool> RemoveProperty<T>(object id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
-        var jsonPath = ResolvePropertyPath(property, this.jsonOptions, FindTypeInfo(jsonTypeInfo));
+        var resolvedId = IdHelper.ResolveIdToString(id);
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
         return this.ExecuteAsync(
-            () => this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken),
+            () => this.RemovePropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, cancellationToken),
             cancellationToken);
     }
 
-    public Task<T?> Get<T>(string id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+    public Task<T?> Get<T>(object id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
+        var resolvedId = IdHelper.ResolveIdToString(id);
         var typeInfo = FindTypeInfo(jsonTypeInfo);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
             cmd.CommandText = "SELECT Data FROM documents WHERE Id = @id AND TypeName = @typeName;";
-            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@id", resolvedId);
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
             this.Log(cmd.CommandText);
@@ -440,13 +445,14 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         }, cancellationToken);
     }
 
-    public Task<bool> Remove<T>(string id, CancellationToken cancellationToken = default) where T : class
+    public Task<bool> Remove<T>(object id, CancellationToken cancellationToken = default) where T : class
     {
+        var resolvedId = IdHelper.ResolveIdToString(id);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
             cmd.CommandText = "DELETE FROM documents WHERE Id = @id AND TypeName = @typeName;";
-            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@id", resolvedId);
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
             this.Log(cmd.CommandText);
@@ -922,24 +928,29 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task<bool> SetProperty<T>(string id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<bool> SetProperty<T>(object id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var jsonPath = ResolvePropertyPath(property, this.jsonOptions, FindTypeInfo(jsonTypeInfo));
-            return await this.SetPropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken).ConfigureAwait(false);
+            var resolvedId = IdHelper.ResolveIdToString(id);
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
+            return await this.SetPropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task<bool> RemoveProperty<T>(string id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<bool> RemoveProperty<T>(object id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var jsonPath = ResolvePropertyPath(property, this.jsonOptions, FindTypeInfo(jsonTypeInfo));
-            return await this.RemovePropertyCoreAsync(id, this.ResolveTypeName<T>(), jsonPath, cancellationToken).ConfigureAwait(false);
+            var resolvedId = IdHelper.ResolveIdToString(id);
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
+            return await this.RemovePropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, cancellationToken).ConfigureAwait(false);
         }
 
-        public async Task<T?> Get<T>(string id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        public async Task<T?> Get<T>(object id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
+            var resolvedId = IdHelper.ResolveIdToString(id);
             var typeInfo = FindTypeInfo(jsonTypeInfo);
             await using var cmd = this.CreateCommand();
             cmd.CommandText = "SELECT Data FROM documents WHERE Id = @id AND TypeName = @typeName;";
-            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@id", resolvedId);
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
             this.Log(cmd.CommandText);
@@ -995,11 +1006,12 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             return Convert.ToInt32(result);
         }
 
-        public async Task<bool> Remove<T>(string id, CancellationToken cancellationToken = default) where T : class
+        public async Task<bool> Remove<T>(object id, CancellationToken cancellationToken = default) where T : class
         {
+            var resolvedId = IdHelper.ResolveIdToString(id);
             await using var cmd = this.CreateCommand();
             cmd.CommandText = "DELETE FROM documents WHERE Id = @id AND TypeName = @typeName;";
-            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@id", resolvedId);
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             this.Log(cmd.CommandText);
             var rows = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
