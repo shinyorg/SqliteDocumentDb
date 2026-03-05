@@ -61,7 +61,7 @@ public class ChildCollectionInsertBenchmarks
         var ctx = BenchmarkJsonContext.Default;
         for (var i = 0; i < Count; i++)
         {
-            await store.Set(CreateOrder(i), ctx.BenchmarkOrder);
+            await store.Insert(CreateOrder(i), ctx.BenchmarkOrder);
         }
     }
 
@@ -158,7 +158,7 @@ public class ChildCollectionReadBenchmarks
         for (var i = 0; i < 1000; i++)
         {
             var docOrder = CreateOrder(i);
-            await store.Set(docOrder, ctx.BenchmarkOrder);
+            await store.Insert(docOrder, ctx.BenchmarkOrder);
             if (i == 500) knownDocId = docOrder.Id;
 
             var sqliteOrder = new SqliteOrder
@@ -257,7 +257,7 @@ public class ChildCollectionGetAllBenchmarks
         var ctx = BenchmarkJsonContext.Default;
         for (var i = 0; i < Count; i++)
         {
-            await store.Set(CreateOrder(i), ctx.BenchmarkOrder);
+            await store.Insert(CreateOrder(i), ctx.BenchmarkOrder);
 
             var order = new SqliteOrder
             {
@@ -362,7 +362,7 @@ public class ChildCollectionQueryBenchmarks
         var ctx = BenchmarkJsonContext.Default;
         for (var i = 0; i < 1000; i++)
         {
-            await store.Set(CreateOrder(i), ctx.BenchmarkOrder);
+            await store.Insert(CreateOrder(i), ctx.BenchmarkOrder);
 
             var order = new SqliteOrder
             {

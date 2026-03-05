@@ -90,8 +90,8 @@ public class IndexTests : IDisposable
     [Fact]
     public async Task QueriesReturnCorrectResults_AfterIndexCreation()
     {
-        await this.store.Set(new User { Id = "u1", Name = "Alice", Age = 25 }, ctx.User);
-        await this.store.Set(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
+        await this.store.Insert(new User { Id = "u1", Name = "Alice", Age = 25 }, ctx.User);
+        await this.store.Insert(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
 
         await this.store.CreateIndexAsync<User>(u => u.Name, ctx.User);
 

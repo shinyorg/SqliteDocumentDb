@@ -22,14 +22,14 @@ public class ExpressionQueryTests : IDisposable
 
     async Task SeedUsersAsync()
     {
-        await this.store.Set(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
-        await this.store.Set(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
-        await this.store.Set(new User { Id = "u3", Name = "Charlie", Age = 25 }, ctx.User);
+        await this.store.Insert(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
+        await this.store.Insert(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
+        await this.store.Insert(new User { Id = "u3", Name = "Charlie", Age = 25 }, ctx.User);
     }
 
     async Task SeedOrdersAsync()
     {
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o1",
             CustomerName = "Alice",
@@ -43,7 +43,7 @@ public class ExpressionQueryTests : IDisposable
             Tags = ["priority", "wholesale"]
         }, ctx.Order);
 
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o2",
             CustomerName = "Bob",
@@ -56,7 +56,7 @@ public class ExpressionQueryTests : IDisposable
             Tags = ["retail"]
         }, ctx.Order);
 
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o3",
             CustomerName = "Charlie",
@@ -274,7 +274,7 @@ public class ExpressionQueryTests : IDisposable
     [Fact]
     public async Task Query_Any_NoPredicate_EmptyCollection()
     {
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o_empty",
             CustomerName = "Empty",
@@ -284,7 +284,7 @@ public class ExpressionQueryTests : IDisposable
             Tags = []
         }, ctx.Order);
 
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o_full",
             CustomerName = "Full",
@@ -439,7 +439,7 @@ public class ExpressionQueryTests : IDisposable
 
     async Task SeedEventsAsync()
     {
-        await this.store.Set(new Event
+        await this.store.Insert(new Event
         {
             Id = "e1",
             Title = "Past",
@@ -447,7 +447,7 @@ public class ExpressionQueryTests : IDisposable
             CreatedAt = new DateTimeOffset(2024, 1, 10, 8, 0, 0, TimeSpan.Zero)
         }, ctx.Event);
 
-        await this.store.Set(new Event
+        await this.store.Insert(new Event
         {
             Id = "e2",
             Title = "Present",
@@ -455,7 +455,7 @@ public class ExpressionQueryTests : IDisposable
             CreatedAt = new DateTimeOffset(2025, 5, 20, 9, 0, 0, TimeSpan.Zero)
         }, ctx.Event);
 
-        await this.store.Set(new Event
+        await this.store.Insert(new Event
         {
             Id = "e3",
             Title = "Future",

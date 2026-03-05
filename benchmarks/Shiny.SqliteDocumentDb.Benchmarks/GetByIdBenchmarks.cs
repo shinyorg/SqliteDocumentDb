@@ -31,7 +31,7 @@ public class GetByIdBenchmarks
         for (var i = 0; i < 1000; i++)
         {
             var user = new BenchmarkUser { Name = $"User_{i}", Age = 20 + (i % 50), Email = $"user{i}@test.com" };
-            await store.Set(user, ctx.BenchmarkUser);
+            await store.Insert(user, ctx.BenchmarkUser);
             if (i == 500) knownDocId = user.Id;
 
             var sqliteUser = new SqliteUser { DocId = Guid.NewGuid().ToString("N"), Name = $"User_{i}", Age = 20 + (i % 50), Email = $"user{i}@test.com" };

@@ -331,7 +331,7 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 
 | With explicit `JsonTypeInfo<T>` | With auto-resolution (recommended) |
 |---|---|
-| `store.Set(user, ctx.User)` | `store.Set(user)` |
+| `store.Insert(user, ctx.User)` | `store.Insert(user)` |
 | `store.Get("id", ctx.User)` | `store.Get<User>("id")` |
 | `store.Upsert(patch, ctx.User)` | `store.Upsert(patch)` |
 | `store.SetProperty("id", (User u) => u.Age, 31, ctx.User)` | `store.SetProperty<User>("id", u => u.Age, 31)` |
@@ -345,7 +345,7 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 ```csharp
 // All of these are AOT-safe when ctx.Options is configured
 var user = new User { Name = "Alice", Age = 25 };
-await store.Set(user); // user.Id is auto-generated
+await store.Insert(user); // user.Id is auto-generated
 var fetched = await store.Get<User>(user.Id);
 var all = await store.Query<User>().ToList();
 await store.Upsert(new User { Id = user.Id, Name = "Alice", Age = 30 });
@@ -398,31 +398,40 @@ public class User
 | `int` | `0` | `MAX(CAST(Id AS INTEGER)) + 1` per TypeName |
 | `long` | `0` | `MAX(CAST(Id AS INTEGER)) + 1` per TypeName |
 
-When `Set` is called with a default Id, the store auto-generates one and writes it back to the object. When a non-default Id is provided, it is used as-is.
+When `Insert` is called with a default Id, the store auto-generates one and writes it back to the object. When a non-default Id is provided, it is used as-is. If a document with the same Id already exists, `Insert` throws an exception.
 
 ## Basic CRUD Operations
 
-### Store a document (auto-generated ID)
+### Insert a document (auto-generated ID)
 
 ```csharp
 var user = new User { Name = "Alice", Age = 25 };
-await store.Set(user);
+await store.Insert(user);
 // user.Id is now populated
 ```
 
-### Store a document (explicit ID)
+### Insert a document (explicit ID)
 
 ```csharp
-await store.Set(new User { Id = "user-1", Name = "Alice", Age = 25 });
+await store.Insert(new User { Id = "user-1", Name = "Alice", Age = 25 });
+// Throws if "user-1" already exists
+```
+
+### Update a document (full replacement)
+
+`Update` replaces the entire document. The document must have a non-default Id and must already exist; otherwise an exception is thrown.
+
+```csharp
+await store.Update(new User { Id = "user-1", Name = "Alice", Age = 26 });
 ```
 
 ### Upsert with JSON Merge Patch
 
-`Upsert` uses SQLite's `json_patch()` (RFC 7396 JSON Merge Patch) to deep-merge a partial patch into an existing document. If the document doesn't exist, it is inserted as-is. Unlike `Set`, which replaces the entire document, `Upsert` only overwrites the fields present in the patch. The document must have a non-default Id.
+`Upsert` uses SQLite's `json_patch()` (RFC 7396 JSON Merge Patch) to deep-merge a partial patch into an existing document. If the document doesn't exist, it is inserted as-is. Unlike `Update`, which replaces the entire document, `Upsert` only overwrites the fields present in the patch. The document must have a non-default Id.
 
 ```csharp
 // Insert a full document
-await store.Set(new User { Id = "user-1", Name = "Alice", Age = 25, Email = "alice@test.com" });
+await store.Insert(new User { Id = "user-1", Name = "Alice", Age = 25, Email = "alice@test.com" });
 
 // Merge patch — only update Name and Age, preserve Email
 await store.Upsert(new User { Id = "user-1", Name = "Alice", Age = 30 });
@@ -469,7 +478,7 @@ SET Data = json_set(Data, '$.age', json('31')), UpdatedAt = @now
 WHERE Id = @id AND TypeName = @typeName;
 ```
 
-**Supported value types:** `SetProperty` is designed for scalar values — `string`, `int`, `long`, `double`, `float`, `decimal`, `bool`, and `null`. It does not support setting collection or complex object values. To replace a nested object or array, use `Set` (full replacement) or `Upsert` (merge patch).
+**Supported value types:** `SetProperty` is designed for scalar values — `string`, `int`, `long`, `double`, `float`, `decimal`, `bool`, and `null`. It does not support setting collection or complex object values. To replace a nested object or array, use `Update` (full replacement) or `Upsert` (merge patch).
 
 ### Remove a single property (RemoveProperty)
 
@@ -499,14 +508,15 @@ WHERE Id = @id AND TypeName = @typeName;
 
 Unlike `SetProperty`, `RemoveProperty` works on any property type — scalar, nested object, or collection — because it simply removes the key from the JSON regardless of the value's shape.
 
-### SetProperty vs RemoveProperty vs Upsert vs Set
+### SetProperty vs RemoveProperty vs Upsert vs Insert vs Update
 
 | Operation | Use when | Scope | Collections |
 |---|---|---|---|
 | `SetProperty` | Changing one scalar field | Single field, in-place `json_set` | Scalar values only |
 | `RemoveProperty` | Stripping a field from the document | Single field, in-place `json_remove` | Works on any property type |
 | `Upsert` | Patching multiple fields at once | Deep merge via `json_patch` | Replaces arrays entirely (RFC 7396) |
-| `Set` | Replacing the entire document | Full replacement | Full control |
+| `Insert` | Adding a new document | Full document write; throws if Id exists | Full control |
+| `Update` | Replacing an existing document | Full replacement; throws if not found | Full control |
 
 ### Get a document by ID
 
@@ -952,8 +962,8 @@ await foreach (var user in store.QueryStream<User>(
 ```csharp
 await store.RunInTransaction(async tx =>
 {
-    await tx.Set(new User { Id = "u1", Name = "Alice", Age = 25 });
-    await tx.Set(new User { Id = "u2", Name = "Bob", Age = 30 });
+    await tx.Insert(new User { Id = "u1", Name = "Alice", Age = 25 });
+    await tx.Insert(new User { Id = "u2", Name = "Bob", Age = 30 });
     // Commits on success, rolls back on exception
 });
 ```

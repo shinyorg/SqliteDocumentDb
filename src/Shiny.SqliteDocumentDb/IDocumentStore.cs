@@ -12,12 +12,22 @@ public interface IDocumentStore
     IDocumentQuery<T> Query<T>(JsonTypeInfo<T>? jsonTypeInfo = null) where T : class;
 
     /// <summary>
-    /// Upserts a document. The document must have a public Id property (Guid, int, long, or string).
-    /// If the Id is the default value, it will be auto-generated.
+    /// Inserts a new document. The document must have a public Id property (Guid, int, long, or string).
+    /// For Guid, int, and long, if the Id is the default value it will be auto-generated.
+    /// For string, a default (null/empty) Id will throw <see cref="InvalidOperationException"/>.
+    /// If a document with the same Id already exists, throws <see cref="InvalidOperationException"/>.
     /// </summary>
-    /// <param name="document">The document to store.</param>
+    /// <param name="document">The document to insert.</param>
     /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
-    Task Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
+    Task Insert<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Updates an existing document by replacing it entirely. The document must have a non-default Id.
+    /// If the document is not found, throws <see cref="InvalidOperationException"/>.
+    /// </summary>
+    /// <param name="document">The document to update. Must have a non-default Id.</param>
+    /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
+    Task Update<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Upserts a document using RFC 7396 JSON Merge Patch. The document must have a non-default Id.

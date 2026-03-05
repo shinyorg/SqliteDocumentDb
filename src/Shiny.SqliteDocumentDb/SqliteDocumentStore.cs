@@ -97,17 +97,14 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         }
     }
 
-    async Task UpsertCoreAsync(string id, string typeName, string json, CancellationToken ct)
+    async Task InsertCoreAsync(string id, string typeName, string json, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
 
         await using var cmd = this.connection.CreateCommand();
         cmd.CommandText = """
             INSERT INTO documents (Id, TypeName, Data, CreatedAt, UpdatedAt)
-            VALUES (@id, @typeName, @data, @now, @now)
-            ON CONFLICT(Id, TypeName) DO UPDATE SET
-                Data = @data,
-                UpdatedAt = @now;
+            VALUES (@id, @typeName, @data, @now, @now);
             """;
         cmd.Parameters.AddWithValue("@id", id);
         cmd.Parameters.AddWithValue("@typeName", typeName);
@@ -115,7 +112,37 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         cmd.Parameters.AddWithValue("@now", now);
 
         this.Log(cmd.CommandText);
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19) // SQLITE_CONSTRAINT
+        {
+            throw new InvalidOperationException(
+                $"A document of type '{typeName}' with Id '{id}' already exists.", ex);
+        }
+    }
+
+    async Task UpdateCoreAsync(string id, string typeName, string json, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow.ToString("O");
+
+        await using var cmd = this.connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE documents
+            SET Data = @data, UpdatedAt = @now
+            WHERE Id = @id AND TypeName = @typeName;
+            """;
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@typeName", typeName);
+        cmd.Parameters.AddWithValue("@data", json);
+        cmd.Parameters.AddWithValue("@now", now);
+
+        this.Log(cmd.CommandText);
+        var rows = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        if (rows == 0)
+            throw new InvalidOperationException(
+                $"No document of type '{typeName}' with Id '{id}' was found to update.");
     }
 
     async Task UpsertMergeCoreAsync(string id, string typeName, string json, CancellationToken ct)
@@ -237,7 +264,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     // ── CRUD ────────────────────────────────────────────────────────────
 
-    public Task Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+    public Task Insert<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
         var typeInfo = FindTypeInfo(jsonTypeInfo);
         var accessor = this.idCache.GetOrCreate(typeInfo);
@@ -246,6 +273,11 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             string id;
             if (accessor.IsDefaultId(document))
             {
+                if (accessor.Kind == IdKind.String)
+                    throw new InvalidOperationException(
+                        $"Insert requires a non-empty string Id on '{typeof(T).Name}'. " +
+                        "String Id properties are not auto-generated during Insert.");
+
                 var typeName = this.ResolveTypeName<T>();
                 id = await this.GenerateIdAsync(accessor.Kind, typeName, cancellationToken).ConfigureAwait(false);
                 accessor.SetId(document, id);
@@ -255,7 +287,24 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                 id = accessor.GetIdAsString(document);
             }
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
-            await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+            await this.InsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    public Task Update<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+    {
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var accessor = this.idCache.GetOrCreate(typeInfo);
+        return this.ExecuteAsync(async () =>
+        {
+            if (accessor.IsDefaultId(document))
+                throw new InvalidOperationException(
+                    $"Update requires a non-default Id on the document. " +
+                    $"Set the Id property on '{typeof(T).Name}' before calling Update.");
+
+            var id = accessor.GetIdAsString(document);
+            var json = SerializeDocument(document, typeInfo, this.jsonOptions);
+            await this.UpdateCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
@@ -690,23 +739,48 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
         // ── CRUD ────────────────────────────────────────────────────────
 
-        async Task UpsertCoreAsync(string id, string typeName, string json, CancellationToken ct)
+        async Task InsertCoreAsync(string id, string typeName, string json, CancellationToken ct)
         {
             var now = DateTimeOffset.UtcNow.ToString("O");
             await using var cmd = this.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO documents (Id, TypeName, Data, CreatedAt, UpdatedAt)
-                VALUES (@id, @typeName, @data, @now, @now)
-                ON CONFLICT(Id, TypeName) DO UPDATE SET
-                    Data = @data,
-                    UpdatedAt = @now;
+                VALUES (@id, @typeName, @data, @now, @now);
                 """;
             cmd.Parameters.AddWithValue("@id", id);
             cmd.Parameters.AddWithValue("@typeName", typeName);
             cmd.Parameters.AddWithValue("@data", json);
             cmd.Parameters.AddWithValue("@now", now);
             this.Log(cmd.CommandText);
-            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 19) // SQLITE_CONSTRAINT
+            {
+                throw new InvalidOperationException(
+                    $"A document of type '{typeName}' with Id '{id}' already exists.", ex);
+            }
+        }
+
+        async Task UpdateCoreAsync(string id, string typeName, string json, CancellationToken ct)
+        {
+            var now = DateTimeOffset.UtcNow.ToString("O");
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = """
+                UPDATE documents
+                SET Data = @data, UpdatedAt = @now
+                WHERE Id = @id AND TypeName = @typeName;
+                """;
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@typeName", typeName);
+            cmd.Parameters.AddWithValue("@data", json);
+            cmd.Parameters.AddWithValue("@now", now);
+            this.Log(cmd.CommandText);
+            var rows = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            if (rows == 0)
+                throw new InvalidOperationException(
+                    $"No document of type '{typeName}' with Id '{id}' was found to update.");
         }
 
         async Task UpsertMergeCoreAsync(string id, string typeName, string json, CancellationToken ct)
@@ -793,7 +867,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             }
         }
 
-        public async Task Set<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        public async Task Insert<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
             var typeInfo = FindTypeInfo(jsonTypeInfo);
             var accessor = this.idCache.GetOrCreate(typeInfo);
@@ -801,6 +875,11 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             string id;
             if (accessor.IsDefaultId(document))
             {
+                if (accessor.Kind == IdKind.String)
+                    throw new InvalidOperationException(
+                        $"Insert requires a non-empty string Id on '{typeof(T).Name}'. " +
+                        "String Id properties are not auto-generated during Insert.");
+
                 var typeName = this.ResolveTypeName<T>();
                 id = await this.GenerateIdAsync(accessor.Kind, typeName, cancellationToken).ConfigureAwait(false);
                 accessor.SetId(document, id);
@@ -810,7 +889,22 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                 id = accessor.GetIdAsString(document);
             }
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
-            await this.UpsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+            await this.InsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task Update<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        {
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var accessor = this.idCache.GetOrCreate(typeInfo);
+
+            if (accessor.IsDefaultId(document))
+                throw new InvalidOperationException(
+                    $"Update requires a non-default Id on the document. " +
+                    $"Set the Id property on '{typeof(T).Name}' before calling Update.");
+
+            var id = accessor.GetIdAsString(document);
+            var json = SerializeDocument(document, typeInfo, this.jsonOptions);
+            await this.UpdateCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task Upsert<T>(T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class

@@ -19,9 +19,9 @@ public class QueryTests : IDisposable
 
     async Task SeedUsersAsync()
     {
-        await this.store.Set(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" });
-        await this.store.Set(new User { Id = "u2", Name = "Bob", Age = 35 });
-        await this.store.Set(new User { Id = "u3", Name = "Charlie", Age = 25 });
+        await this.store.Insert(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" });
+        await this.store.Insert(new User { Id = "u2", Name = "Bob", Age = 35 });
+        await this.store.Insert(new User { Id = "u3", Name = "Charlie", Age = 25 });
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public class QueryTests : IDisposable
 
     async Task SeedOrdersAsync()
     {
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o1",
             CustomerName = "Alice",
@@ -118,7 +118,7 @@ public class QueryTests : IDisposable
             Tags = ["priority", "wholesale"]
         });
 
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o2",
             CustomerName = "Bob",
@@ -131,7 +131,7 @@ public class QueryTests : IDisposable
             Tags = ["retail"]
         });
 
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o3",
             CustomerName = "Charlie",

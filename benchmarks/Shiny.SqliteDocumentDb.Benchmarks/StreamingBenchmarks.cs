@@ -29,7 +29,7 @@ public class StreamingGetAllBenchmarks
         for (var i = 0; i < Count; i++)
         {
             var user = new BenchmarkUser { Name = $"User_{i}", Age = 20 + (i % 50), Email = $"user{i}@test.com" };
-            await store.Set(user, ctx.BenchmarkUser);
+            await store.Insert(user, ctx.BenchmarkUser);
         }
     }
 
@@ -82,7 +82,7 @@ public class StreamingGetAllNestedBenchmarks
         var ctx = BenchmarkJsonContext.Default;
         for (var i = 0; i < Count; i++)
         {
-            await store.Set(CreateOrder(i), ctx.BenchmarkOrder);
+            await store.Insert(CreateOrder(i), ctx.BenchmarkOrder);
         }
     }
 
@@ -149,7 +149,7 @@ public class StreamingQueryBenchmarks
         var ctx = BenchmarkJsonContext.Default;
         for (var i = 0; i < 1000; i++)
         {
-            await store.Set(CreateOrder(i), ctx.BenchmarkOrder);
+            await store.Insert(CreateOrder(i), ctx.BenchmarkOrder);
         }
     }
 

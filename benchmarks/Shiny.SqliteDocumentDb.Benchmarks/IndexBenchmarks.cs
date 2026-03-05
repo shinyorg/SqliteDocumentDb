@@ -33,8 +33,8 @@ public class IndexQueryBenchmarks
         for (var i = 0; i < 1000; i++)
         {
             var user = new BenchmarkUser { Name = $"User_{i}", Age = 20 + (i % 50), Email = $"user{i}@test.com" };
-            await storeNoIndex.Set(user, ctx.BenchmarkUser);
-            await storeWithIndex.Set(user, ctx.BenchmarkUser);
+            await storeNoIndex.Insert(user, ctx.BenchmarkUser);
+            await storeWithIndex.Insert(user, ctx.BenchmarkUser);
         }
 
         await storeWithIndex.CreateIndexAsync<BenchmarkUser>(u => u.Name, ctx.BenchmarkUser);
@@ -99,8 +99,8 @@ public class IndexNestedQueryBenchmarks
         for (var i = 0; i < 1000; i++)
         {
             var order = CreateOrder(i, cities[i % cities.Length]);
-            await storeNoIndex.Set(order, ctx.BenchmarkOrder);
-            await storeWithIndex.Set(order, ctx.BenchmarkOrder);
+            await storeNoIndex.Insert(order, ctx.BenchmarkOrder);
+            await storeWithIndex.Insert(order, ctx.BenchmarkOrder);
         }
 
         await storeWithIndex.CreateIndexAsync<BenchmarkOrder>(o => o.ShippingAddress.City, ctx.BenchmarkOrder);

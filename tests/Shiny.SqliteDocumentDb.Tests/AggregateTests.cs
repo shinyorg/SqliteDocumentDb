@@ -22,21 +22,21 @@ public class AggregateTests : IDisposable
 
     async Task SeedUsersAsync()
     {
-        await this.store.Set(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
-        await this.store.Set(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
-        await this.store.Set(new User { Id = "u3", Name = "Charlie", Age = 30 }, ctx.User);
+        await this.store.Insert(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
+        await this.store.Insert(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
+        await this.store.Insert(new User { Id = "u3", Name = "Charlie", Age = 30 }, ctx.User);
     }
 
     async Task SeedProductsAsync()
     {
-        await this.store.Set(new Product { Id = "p1", Title = "Widget", Price = 9.99m }, ctx.Product);
-        await this.store.Set(new Product { Id = "p2", Title = "Gadget", Price = 24.99m }, ctx.Product);
-        await this.store.Set(new Product { Id = "p3", Title = "Doohickey", Price = 14.99m }, ctx.Product);
+        await this.store.Insert(new Product { Id = "p1", Title = "Widget", Price = 9.99m }, ctx.Product);
+        await this.store.Insert(new Product { Id = "p2", Title = "Gadget", Price = 24.99m }, ctx.Product);
+        await this.store.Insert(new Product { Id = "p3", Title = "Doohickey", Price = 14.99m }, ctx.Product);
     }
 
     async Task SeedOrdersAsync()
     {
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o1",
             CustomerName = "Alice",
@@ -50,7 +50,7 @@ public class AggregateTests : IDisposable
             Tags = ["priority", "wholesale"]
         }, ctx.Order);
 
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o2",
             CustomerName = "Bob",
@@ -63,7 +63,7 @@ public class AggregateTests : IDisposable
             Tags = ["retail"]
         }, ctx.Order);
 
-        await this.store.Set(new Order
+        await this.store.Insert(new Order
         {
             Id = "o3",
             CustomerName = "Charlie",

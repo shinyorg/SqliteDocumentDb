@@ -29,7 +29,7 @@ public class QueryBenchmarks
         for (var i = 0; i < 1000; i++)
         {
             var user = new BenchmarkUser { Name = $"Alice_{i}", Age = 20 + (i % 50), Email = $"alice{i}@test.com" };
-            await store.Set(user, ctx.BenchmarkUser);
+            await store.Insert(user, ctx.BenchmarkUser);
 
             var sqliteUser = new SqliteUser { DocId = Guid.NewGuid().ToString("N"), Name = $"Alice_{i}", Age = 20 + (i % 50), Email = $"alice{i}@test.com" };
             await db.InsertAsync(sqliteUser);

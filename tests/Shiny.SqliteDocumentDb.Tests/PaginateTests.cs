@@ -22,11 +22,11 @@ public class PaginateTests : IDisposable
 
     async Task SeedUsersAsync()
     {
-        await this.store.Set(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
-        await this.store.Set(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
-        await this.store.Set(new User { Id = "u3", Name = "Charlie", Age = 30 }, ctx.User);
-        await this.store.Set(new User { Id = "u4", Name = "Diana", Age = 28 }, ctx.User);
-        await this.store.Set(new User { Id = "u5", Name = "Eve", Age = 22 }, ctx.User);
+        await this.store.Insert(new User { Id = "u1", Name = "Alice", Age = 25, Email = "alice@test.com" }, ctx.User);
+        await this.store.Insert(new User { Id = "u2", Name = "Bob", Age = 35 }, ctx.User);
+        await this.store.Insert(new User { Id = "u3", Name = "Charlie", Age = 30 }, ctx.User);
+        await this.store.Insert(new User { Id = "u4", Name = "Diana", Age = 28 }, ctx.User);
+        await this.store.Insert(new User { Id = "u5", Name = "Eve", Age = 22 }, ctx.User);
     }
 
     // ── ToList ──────────────────────────────────────────────────
