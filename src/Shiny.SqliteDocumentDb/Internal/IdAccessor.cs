@@ -33,6 +33,24 @@ internal sealed class IdAccessor<T> where T : class
         };
     }
 
+    public string ResolveId(object id)
+    {
+        return (Kind, id) switch
+        {
+            (IdKind.Guid, Guid g) => g.ToString("N"),
+            (IdKind.Int, int i) => i.ToString(),
+            (IdKind.Long, long l) => l.ToString(),
+            (IdKind.String, string s) => s,
+            _ when id is not Guid and not int and not long and not string =>
+                throw new ArgumentException(
+                    $"Unsupported Id type '{id.GetType().Name}'. Supported types are: Guid, int, long, string.",
+                    nameof(id)),
+            _ => throw new ArgumentException(
+                    $"Id type mismatch for '{typeof(T).Name}'. Expected '{Kind}' but received '{id.GetType().Name}'.",
+                    nameof(id))
+        };
+    }
+
     public void SetId(T doc, string id)
     {
         object value = Kind switch
@@ -110,23 +128,6 @@ internal sealed class IdAccessor<T> where T : class
             $"Id property on type '{typeof(T).FullName}' has unsupported type '{type.Name}'. " +
             "Supported types are: Guid, int, long, string.")
     };
-}
-
-internal static class IdHelper
-{
-    internal static string ResolveIdToString(object id)
-    {
-        return id switch
-        {
-            Guid g => g.ToString("N"),
-            int i => i.ToString(),
-            long l => l.ToString(),
-            string s => s,
-            _ => throw new ArgumentException(
-                $"Unsupported Id type '{id.GetType().Name}'. Supported types are: Guid, int, long, string.",
-                nameof(id))
-        };
-    }
 }
 
 internal sealed class IdAccessorCache

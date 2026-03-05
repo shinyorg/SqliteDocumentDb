@@ -327,8 +327,8 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     public Task<bool> SetProperty<T>(object id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
-        var resolvedId = IdHelper.ResolveIdToString(id);
         var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
         var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
         return this.ExecuteAsync(
             () => this.SetPropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken),
@@ -337,8 +337,8 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     public Task<bool> RemoveProperty<T>(object id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
-        var resolvedId = IdHelper.ResolveIdToString(id);
         var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
         var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
         return this.ExecuteAsync(
             () => this.RemovePropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, cancellationToken),
@@ -347,8 +347,8 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     public Task<T?> Get<T>(object id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
     {
-        var resolvedId = IdHelper.ResolveIdToString(id);
         var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
@@ -447,7 +447,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     public Task<bool> Remove<T>(object id, CancellationToken cancellationToken = default) where T : class
     {
-        var resolvedId = IdHelper.ResolveIdToString(id);
+        var resolvedId = this.idCache.GetOrCreate<T>(null).ResolveId(id);
         return this.ExecuteAsync(async () =>
         {
             await using var cmd = this.connection.CreateCommand();
@@ -930,24 +930,24 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
         public async Task<bool> SetProperty<T>(object id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var resolvedId = IdHelper.ResolveIdToString(id);
             var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
             var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
             return await this.SetPropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<bool> RemoveProperty<T>(object id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var resolvedId = IdHelper.ResolveIdToString(id);
             var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
             var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
             return await this.RemovePropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<T?> Get<T>(object id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
-            var resolvedId = IdHelper.ResolveIdToString(id);
             var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
             await using var cmd = this.CreateCommand();
             cmd.CommandText = "SELECT Data FROM documents WHERE Id = @id AND TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@id", resolvedId);
@@ -1008,7 +1008,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
         public async Task<bool> Remove<T>(object id, CancellationToken cancellationToken = default) where T : class
         {
-            var resolvedId = IdHelper.ResolveIdToString(id);
+            var resolvedId = this.idCache.GetOrCreate<T>(null).ResolveId(id);
             await using var cmd = this.CreateCommand();
             cmd.CommandText = "DELETE FROM documents WHERE Id = @id AND TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@id", resolvedId);
