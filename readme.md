@@ -21,6 +21,7 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 - **Typed Id lookups** — `Get`, `Remove`, `SetProperty`, and `RemoveProperty` accept the Id as `object` so you can pass a `Guid`, `int`, `long`, or `string` directly. Unsupported types throw `ArgumentException`.
 - **Pagination** — `store.Query<User>().OrderBy(u => u.Name).Paginate(0, 20).ToList()` translates to SQL `LIMIT`/`OFFSET`.
 - **Transactions** — `store.RunInTransaction(async tx => { ... })` with automatic commit/rollback.
+- **Hot backup** — `store.Backup("/path/to/backup.db")` copies the database to a file using the SQLite Online Backup API while the store remains usable.
 
 ## Comparison with alternatives
 
@@ -976,6 +977,14 @@ await store.RunInTransaction(async tx =>
     await tx.Insert(new User { Id = "u2", Name = "Bob", Age = 30 });
     // Commits on success, rolls back on exception
 });
+```
+
+## Backup
+
+Creates a hot backup of the database to a file using the SQLite Online Backup API. The store remains fully usable during the backup. Not supported inside a transaction.
+
+```csharp
+await store.Backup("/path/to/backup.db");
 ```
 
 ## Index Management

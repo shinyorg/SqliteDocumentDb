@@ -659,6 +659,22 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         return list;
     }
 
+    public Task Backup(string destinationPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+        return this.ExecuteAsync(async () =>
+        {
+            var destinationConnectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = destinationPath
+            }.ToString();
+
+            await using var destination = new SqliteConnection(destinationConnectionString);
+            await destination.OpenAsync(cancellationToken).ConfigureAwait(false);
+            this.connection.BackupDatabase(destination);
+        }, cancellationToken);
+    }
+
     public void Dispose()
     {
         this.connection.Dispose();
@@ -1030,6 +1046,11 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         public Task RunInTransaction(Func<IDocumentStore, Task> operation, CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Nested transactions are not supported.");
+        }
+
+        public Task Backup(string destinationPath, CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Backup is not supported inside a transaction.");
         }
     }
 }

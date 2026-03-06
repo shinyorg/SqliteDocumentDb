@@ -101,4 +101,11 @@ public interface IDocumentStore
     /// Executes multiple operations within a single SQLite transaction.
     /// </summary>
     Task RunInTransaction(Func<IDocumentStore, Task> operation, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a backup of the database to the specified file path using the SQLite Online Backup API.
+    /// The backup is performed as a hot copy; the store remains usable during the operation.
+    /// </summary>
+    /// <param name="destinationPath">The file path where the backup should be written. Any existing file will be overwritten.</param>
+    Task Backup(string destinationPath, CancellationToken cancellationToken = default);
 }
