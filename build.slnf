@@ -1,0 +1,10 @@
+﻿{
+  "solution": {
+    "path": "SqliteDocumentDb.slnx",
+    "projects": [
+      "src\\Shiny.SqliteDocumentDb.Extensions.DependencyInjection\\Shiny.SqliteDocumentDb.Extensions.DependencyInjection.csproj",
+      "src\\Shiny.SqliteDocumentDb\\Shiny.SqliteDocumentDb.csproj",
+      "tests\\Shiny.SqliteDocumentDb.Tests\\Shiny.SqliteDocumentDb.Tests.csproj"
+    ]
+  }
+}
