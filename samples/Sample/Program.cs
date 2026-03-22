@@ -21,7 +21,7 @@ using var store = new SqliteDocumentStore(new DocumentStoreOptions
     ConnectionString = $"Data Source={dbPath}",
     JsonSerializerOptions = jsonContext.Options,
     UseReflectionFallback = false, // AOT: throw if type not in context
-    Logging = sql => Console.WriteLine($"  SQL: {sql}") // uncomment to see generated SQL
+    // Logging = sql => Console.WriteLine($"  SQL: {sql}") // uncomment to see generated SQL
 }
 .MapTypeToTable<Order>("orders")                     // explicit table name
 .MapTypeToTable<Sensor>("sensors", s => s.DeviceKey) // custom Id property
@@ -107,6 +107,32 @@ fetched.Email = "alice.new@example.com";
 await store.Update(fetched);
 var updated = await store.Get<Customer>("alice");
 Console.WriteLine($"After Update: Age={updated!.Age}, Email={updated.Email}");
+Console.WriteLine();
+
+// ═══════════════════════════════════════════════════════════════════
+// 4b. GetDiff (diff against stored document)
+// ═══════════════════════════════════════════════════════════════════
+Console.WriteLine("═══ Patch Document (Diff) ═══");
+
+// Diff an Order — has nested Address, collection of OrderLines, and Tags
+var proposedOrder = new Order
+{
+    Id = "ord-1", CustomerName = "Alice", Status = "Delivered",
+    ShippingAddress = new() { Street = "123 Main St", City = "Seattle", State = "WA" },
+    Lines = [new() { ProductName = "Widget", Quantity = 10, UnitPrice = 8.99m },
+             new() { ProductName = "Gadget", Quantity = 1, UnitPrice = 24.99m },
+             new() { ProductName = "Doohickey", Quantity = 2, UnitPrice = 14.50m }],
+    Tags = ["priority", "expedited"]
+};
+var orderPatch = await store.GetDiff("ord-1", proposedOrder);
+Console.WriteLine($"Patch operations vs stored ord-1 ({orderPatch!.Operations.Count} changes):");
+foreach (var op in orderPatch.Operations)
+    Console.WriteLine($"  {op.OperationType} {op.Path} → {op.Value}");
+
+// Apply the patch to a fresh copy
+var freshOrder = await store.Get<Order>("ord-1");
+orderPatch.ApplyTo(freshOrder!);
+Console.WriteLine($"After applying: Status={freshOrder.Status}, City={freshOrder.ShippingAddress.City}, Lines={freshOrder.Lines.Count}, Tags=[{string.Join(",", freshOrder.Tags)}]");
 Console.WriteLine();
 
 // ═══════════════════════════════════════════════════════════════════

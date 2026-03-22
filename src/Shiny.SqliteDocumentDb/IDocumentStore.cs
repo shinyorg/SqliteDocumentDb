@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Text.Json.Serialization.Metadata;
+using SystemTextJsonPatch;
 
 namespace Shiny.SqliteDocumentDb;
 
@@ -62,6 +63,16 @@ public interface IDocumentStore
     /// <param name="id">The document ID (Guid, int, long, or string). Throws <see cref="ArgumentException"/> for unsupported types.</param>
     /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
     Task<T?> Get<T>(object id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
+    /// Compares a modified object against the stored document with the same ID and returns
+    /// a <see cref="JsonPatchDocument{T}"/> describing the differences (RFC 6902).
+    /// Returns <c>null</c> if no document with the specified ID exists.
+    /// </summary>
+    /// <param name="id">The document ID (Guid, int, long, or string).</param>
+    /// <param name="modified">The modified object to compare against the stored document.</param>
+    /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
+    Task<JsonPatchDocument<T>?> GetDiff<T>(object id, T modified, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
     /// Queries documents using a SQL WHERE clause fragment with json_extract.

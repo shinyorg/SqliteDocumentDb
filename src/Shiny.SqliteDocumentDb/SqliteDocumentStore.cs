@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Data.Sqlite;
 using Shiny.SqliteDocumentDb.Internal;
+using SystemTextJsonPatch;
 
 namespace Shiny.SqliteDocumentDb;
 
@@ -386,6 +387,28 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             return result is string json
                 ? DeserializeDocument(json, typeInfo, this.jsonOptions)
                 : null;
+        }, cancellationToken);
+    }
+
+    public Task<JsonPatchDocument<T>?> GetDiff<T>(object id, T modified, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+    {
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName, async () =>
+        {
+            await using var cmd = this.connection.CreateCommand();
+            cmd.CommandText = $"SELECT Data FROM {tableName} WHERE Id = @id AND TypeName = @typeName;";
+            cmd.Parameters.AddWithValue("@id", resolvedId);
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+
+            this.Log(cmd.CommandText);
+            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (result is not string originalJson)
+                return null;
+
+            var modifiedJson = SerializeDocument(modified, typeInfo, this.jsonOptions);
+            return JsonDiff.CreatePatch<T>(originalJson, modifiedJson, this.jsonOptions);
         }, cancellationToken);
     }
 
@@ -1045,6 +1068,26 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             return result is string json
                 ? DeserializeDocument(json, typeInfo, this.jsonOptions)
                 : null;
+        }
+
+        public async Task<JsonPatchDocument<T>?> GetDiff<T>(object id, T modified, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        {
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
+            var tableName = this.ResolveTableName<T>();
+            await this.EnsureTableAsync(tableName, cancellationToken).ConfigureAwait(false);
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = $"SELECT Data FROM {tableName} WHERE Id = @id AND TypeName = @typeName;";
+            cmd.Parameters.AddWithValue("@id", resolvedId);
+            cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
+
+            this.Log(cmd.CommandText);
+            var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (result is not string originalJson)
+                return null;
+
+            var modifiedJson = SerializeDocument(modified, typeInfo, this.jsonOptions);
+            return JsonDiff.CreatePatch<T>(originalJson, modifiedJson, this.jsonOptions);
         }
 
         // ── String-based query ──────────────────────────────────────────
