@@ -77,14 +77,16 @@ internal sealed class IdAccessor<T> where T : class
         };
     }
 
-    public static IdAccessor<T> Create(JsonTypeInfo<T>? typeInfo)
+    public static IdAccessor<T> Create(JsonTypeInfo<T>? typeInfo, string? idPropertyName = null)
     {
+        var targetName = idPropertyName ?? "Id";
+
         // AOT path: try to find Id via JsonTypeInfo.Properties
         if (typeInfo != null)
         {
             foreach (var prop in typeInfo.Properties)
             {
-                if (prop.AttributeProvider is MemberInfo member && member.Name == "Id")
+                if (prop.AttributeProvider is MemberInfo member && member.Name == targetName)
                 {
                     var kind = ResolveKind(prop.PropertyType);
                     return new IdAccessor<T>(
@@ -97,18 +99,18 @@ internal sealed class IdAccessor<T> where T : class
         }
 
         // Reflection path
-        return CreateViaReflection();
+        return CreateViaReflection(targetName);
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Reflection path only used when JsonTypeInfo is not available.")]
     [UnconditionalSuppressMessage("Trimming", "IL2090", Justification = "Reflection path only used when JsonTypeInfo is not available.")]
-    static IdAccessor<T> CreateViaReflection()
+    static IdAccessor<T> CreateViaReflection(string idPropertyName)
     {
-        var propInfo = typeof(T).GetProperty("Id", BindingFlags.Public | BindingFlags.Instance);
+        var propInfo = typeof(T).GetProperty(idPropertyName, BindingFlags.Public | BindingFlags.Instance);
         if (propInfo == null)
             throw new InvalidOperationException(
-                $"Type '{typeof(T).FullName}' must have a public 'Id' property. " +
-                "Document types require a property named 'Id' of type Guid, int, long, or string.");
+                $"Type '{typeof(T).FullName}' must have a public '{idPropertyName}' property. " +
+                $"Document types require a property named '{idPropertyName}' of type Guid, int, long, or string.");
 
         var kind = ResolveKind(propInfo.PropertyType);
         return new IdAccessor<T>(
@@ -133,9 +135,19 @@ internal sealed class IdAccessor<T> where T : class
 internal sealed class IdAccessorCache
 {
     readonly ConcurrentDictionary<Type, object> cache = new();
+    readonly Func<Type, string?>? resolveIdPropertyName;
+
+    public IdAccessorCache(Func<Type, string?>? resolveIdPropertyName = null)
+    {
+        this.resolveIdPropertyName = resolveIdPropertyName;
+    }
 
     public IdAccessor<T> GetOrCreate<T>(JsonTypeInfo<T>? typeInfo) where T : class
     {
-        return (IdAccessor<T>)cache.GetOrAdd(typeof(T), _ => IdAccessor<T>.Create(typeInfo));
+        return (IdAccessor<T>)cache.GetOrAdd(typeof(T), _ =>
+        {
+            var customName = resolveIdPropertyName?.Invoke(typeof(T));
+            return IdAccessor<T>.Create(typeInfo, customName);
+        });
     }
 }

@@ -17,8 +17,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     readonly DocumentStoreOptions options;
     readonly JsonSerializerOptions jsonOptions;
     readonly Action<string>? logging;
-    readonly IdAccessorCache idCache = new();
-    bool initialized;
+    readonly IdAccessorCache idCache;
+    readonly HashSet<string> initializedTables = new(StringComparer.OrdinalIgnoreCase);
+    bool connectionInitialized;
+
+    public SqliteDocumentStore(string connectionString) : this(new DocumentStoreOptions { ConnectionString = connectionString })
+    {
+    }
 
     public SqliteDocumentStore(DocumentStoreOptions options)
     {
@@ -30,18 +35,21 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         };
         this.logging = options.Logging;
         this.connection = new SqliteConnection(options.ConnectionString);
+        this.idCache = new IdAccessorCache(options.ResolveIdPropertyName);
     }
 
     void Log(string sql) => this.logging?.Invoke(sql);
 
     string ResolveTypeName<T>() => TypeNameResolver.Resolve(typeof(T), this.options.TypeNameResolution);
 
+    string ResolveTableName<T>() => this.options.ResolveTableName(this.ResolveTypeName<T>());
+
     JsonTypeInfo<T>? FindTypeInfo<T>(JsonTypeInfo<T>? provided)
         => FindTypeInfo(provided, this.jsonOptions, this.options.UseReflectionFallback);
 
-    async Task EnsureInitializedAsync(CancellationToken ct)
+    async Task EnsureConnectionInitializedAsync(CancellationToken ct)
     {
-        if (this.initialized)
+        if (this.connectionInitialized)
             return;
 
         await this.connection.OpenAsync(ct).ConfigureAwait(false);
@@ -51,9 +59,19 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         this.Log(walCmd.CommandText);
         await walCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
 
+        this.connectionInitialized = true;
+    }
+
+    async Task EnsureTableInitializedAsync(string tableName, CancellationToken ct)
+    {
+        await this.EnsureConnectionInitializedAsync(ct).ConfigureAwait(false);
+
+        if (!this.initializedTables.Add(tableName))
+            return;
+
         await using var createCmd = this.connection.CreateCommand();
-        createCmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS documents (
+        createCmd.CommandText = $"""
+            CREATE TABLE IF NOT EXISTS {tableName} (
                 Id TEXT NOT NULL,
                 TypeName TEXT NOT NULL,
                 Data TEXT NOT NULL,
@@ -61,20 +79,18 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                 UpdatedAt TEXT NOT NULL,
                 PRIMARY KEY (Id, TypeName)
             );
-            CREATE INDEX IF NOT EXISTS idx_documents_typename ON documents (TypeName);
+            CREATE INDEX IF NOT EXISTS idx_{tableName}_typename ON {tableName} (TypeName);
             """;
         this.Log(createCmd.CommandText);
         await createCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-
-        this.initialized = true;
     }
 
-    async Task<TResult> ExecuteAsync<TResult>(Func<Task<TResult>> operation, CancellationToken ct)
+    async Task<TResult> ExecuteAsync<TResult>(string tableName, Func<Task<TResult>> operation, CancellationToken ct)
     {
         await this.semaphore.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await this.EnsureInitializedAsync(ct).ConfigureAwait(false);
+            await this.EnsureTableInitializedAsync(tableName, ct).ConfigureAwait(false);
             return await operation().ConfigureAwait(false);
         }
         finally
@@ -83,12 +99,12 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         }
     }
 
-    async Task ExecuteAsync(Func<Task> operation, CancellationToken ct)
+    async Task ExecuteAsync(string tableName, Func<Task> operation, CancellationToken ct)
     {
         await this.semaphore.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await this.EnsureInitializedAsync(ct).ConfigureAwait(false);
+            await this.EnsureTableInitializedAsync(tableName, ct).ConfigureAwait(false);
             await operation().ConfigureAwait(false);
         }
         finally
@@ -97,13 +113,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         }
     }
 
-    async Task InsertCoreAsync(string id, string typeName, string json, CancellationToken ct)
+    async Task InsertCoreAsync(string tableName, string id, string typeName, string json, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
 
         await using var cmd = this.connection.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO documents (Id, TypeName, Data, CreatedAt, UpdatedAt)
+        cmd.CommandText = $"""
+            INSERT INTO {tableName} (Id, TypeName, Data, CreatedAt, UpdatedAt)
             VALUES (@id, @typeName, @data, @now, @now);
             """;
         cmd.Parameters.AddWithValue("@id", id);
@@ -123,13 +139,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         }
     }
 
-    async Task UpdateCoreAsync(string id, string typeName, string json, CancellationToken ct)
+    async Task UpdateCoreAsync(string tableName, string id, string typeName, string json, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
 
         await using var cmd = this.connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE documents
+        cmd.CommandText = $"""
+            UPDATE {tableName}
             SET Data = @data, UpdatedAt = @now
             WHERE Id = @id AND TypeName = @typeName;
             """;
@@ -145,17 +161,17 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                 $"No document of type '{typeName}' with Id '{id}' was found to update.");
     }
 
-    async Task UpsertMergeCoreAsync(string id, string typeName, string json, CancellationToken ct)
+    async Task UpsertMergeCoreAsync(string tableName, string id, string typeName, string json, CancellationToken ct)
     {
         json = StripNullProperties(json);
         var now = DateTimeOffset.UtcNow.ToString("O");
 
         await using var cmd = this.connection.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO documents (Id, TypeName, Data, CreatedAt, UpdatedAt)
+        cmd.CommandText = $"""
+            INSERT INTO {tableName} (Id, TypeName, Data, CreatedAt, UpdatedAt)
             VALUES (@id, @typeName, @data, @now, @now)
             ON CONFLICT(Id, TypeName) DO UPDATE SET
-                Data = json_patch(documents.Data, @data),
+                Data = json_patch({tableName}.Data, @data),
                 UpdatedAt = @now;
             """;
         cmd.Parameters.AddWithValue("@id", id);
@@ -167,13 +183,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    async Task<bool> SetPropertyCoreAsync(string id, string typeName, string jsonPath, object? value, CancellationToken ct)
+    async Task<bool> SetPropertyCoreAsync(string tableName, string id, string typeName, string jsonPath, object? value, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
 
         await using var cmd = this.connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE documents
+        cmd.CommandText = $"""
+            UPDATE {tableName}
             SET Data = json_set(Data, @path, json(@value)), UpdatedAt = @now
             WHERE Id = @id AND TypeName = @typeName;
             """;
@@ -188,13 +204,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         return rows > 0;
     }
 
-    async Task<bool> RemovePropertyCoreAsync(string id, string typeName, string jsonPath, CancellationToken ct)
+    async Task<bool> RemovePropertyCoreAsync(string tableName, string id, string typeName, string jsonPath, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
 
         await using var cmd = this.connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE documents
+        cmd.CommandText = $"""
+            UPDATE {tableName}
             SET Data = json_remove(Data, @path), UpdatedAt = @now
             WHERE Id = @id AND TypeName = @typeName;
             """;
@@ -208,7 +224,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         return rows > 0;
     }
 
-    async Task<string> GenerateIdAsync(IdKind kind, string typeName, CancellationToken ct)
+    async Task<string> GenerateIdAsync(IdKind kind, string tableName, string typeName, CancellationToken ct)
     {
         switch (kind)
         {
@@ -222,7 +238,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             case IdKind.Long:
                 await using (var cmd = this.connection.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT MAX(CAST(Id AS INTEGER)) FROM documents WHERE TypeName = @typeName;";
+                    cmd.CommandText = $"SELECT MAX(CAST(Id AS INTEGER)) FROM {tableName} WHERE TypeName = @typeName;";
                     cmd.Parameters.AddWithValue("@typeName", typeName);
                     this.Log(cmd.CommandText);
                     var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
@@ -238,7 +254,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     // ── IQueryExecutor explicit implementation ──────────────────────────
 
     Task<TResult> IQueryExecutor.ExecuteAsync<TResult>(Func<Task<TResult>> operation, CancellationToken ct)
-        => this.ExecuteAsync(operation, ct);
+        => this.ExecuteAsync(this.options.TableName, operation, ct);
 
     IAsyncEnumerable<T> IQueryExecutor.ReadStreamAsync<T>(Action<SqliteCommand> configure, Func<string, T> deserialize, CancellationToken ct)
         => this.ReadStreamAsync(configure, deserialize, ct);
@@ -248,6 +264,9 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     string IQueryExecutor.ResolveTypeName<T>()
         => this.ResolveTypeName<T>();
+
+    string IQueryExecutor.ResolveTableName<T>()
+        => this.ResolveTableName<T>();
 
     JsonSerializerOptions IQueryExecutor.JsonOptions
         => this.jsonOptions;
@@ -268,7 +287,8 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     {
         var typeInfo = FindTypeInfo(jsonTypeInfo);
         var accessor = this.idCache.GetOrCreate(typeInfo);
-        return this.ExecuteAsync(async () =>
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName, async () =>
         {
             string id;
             if (accessor.IsDefaultId(document))
@@ -279,7 +299,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                         "String Id properties are not auto-generated during Insert.");
 
                 var typeName = this.ResolveTypeName<T>();
-                id = await this.GenerateIdAsync(accessor.Kind, typeName, cancellationToken).ConfigureAwait(false);
+                id = await this.GenerateIdAsync(accessor.Kind, tableName, typeName, cancellationToken).ConfigureAwait(false);
                 accessor.SetId(document, id);
             }
             else
@@ -287,7 +307,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                 id = accessor.GetIdAsString(document);
             }
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
-            await this.InsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+            await this.InsertCoreAsync(tableName, id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
@@ -295,7 +315,8 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     {
         var typeInfo = FindTypeInfo(jsonTypeInfo);
         var accessor = this.idCache.GetOrCreate(typeInfo);
-        return this.ExecuteAsync(async () =>
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName, async () =>
         {
             if (accessor.IsDefaultId(document))
                 throw new InvalidOperationException(
@@ -304,7 +325,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
             var id = accessor.GetIdAsString(document);
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
-            await this.UpdateCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+            await this.UpdateCoreAsync(tableName, id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
@@ -312,7 +333,8 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     {
         var typeInfo = FindTypeInfo(jsonTypeInfo);
         var accessor = this.idCache.GetOrCreate(typeInfo);
-        return this.ExecuteAsync(async () =>
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName, async () =>
         {
             if (accessor.IsDefaultId(patch))
                 throw new InvalidOperationException(
@@ -321,7 +343,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
             var id = accessor.GetIdAsString(patch);
             var json = SerializeDocument(patch, typeInfo, this.jsonOptions);
-            await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+            await this.UpsertMergeCoreAsync(tableName, id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
     }
 
@@ -330,8 +352,9 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         var typeInfo = FindTypeInfo(jsonTypeInfo);
         var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
         var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
-        return this.ExecuteAsync(
-            () => this.SetPropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken),
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName,
+            () => this.SetPropertyCoreAsync(tableName, resolvedId, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken),
             cancellationToken);
     }
 
@@ -340,8 +363,9 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         var typeInfo = FindTypeInfo(jsonTypeInfo);
         var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
         var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
-        return this.ExecuteAsync(
-            () => this.RemovePropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, cancellationToken),
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName,
+            () => this.RemovePropertyCoreAsync(tableName, resolvedId, this.ResolveTypeName<T>(), jsonPath, cancellationToken),
             cancellationToken);
     }
 
@@ -349,10 +373,11 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     {
         var typeInfo = FindTypeInfo(jsonTypeInfo);
         var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
-        return this.ExecuteAsync(async () =>
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName, async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE Id = @id AND TypeName = @typeName;";
+            cmd.CommandText = $"SELECT Data FROM {tableName} WHERE Id = @id AND TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@id", resolvedId);
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
@@ -369,10 +394,11 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     public Task<IReadOnlyList<T>> Query<T>(string whereClause, JsonTypeInfo<T>? jsonTypeInfo = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
     {
         var typeInfo = FindTypeInfo(jsonTypeInfo);
-        return this.ExecuteAsync(async () =>
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName, async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.CommandText = $"SELECT Data FROM {tableName} WHERE TypeName = @typeName AND ({whereClause});";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindParameters(cmd, parameters);
 
@@ -391,7 +417,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         await this.semaphore.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await this.EnsureInitializedAsync(ct).ConfigureAwait(false);
+            await this.EnsureConnectionInitializedAsync(ct).ConfigureAwait(false);
 
             await using var cmd = this.connection.CreateCommand();
             configureCommand(cmd);
@@ -414,10 +440,11 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     {
         var typeInfo = FindTypeInfo(jsonTypeInfo);
         var typeName = this.ResolveTypeName<T>();
+        var tableName = this.ResolveTableName<T>();
         return this.ReadStreamAsync<T>(
             cmd =>
             {
-                cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+                cmd.CommandText = $"SELECT Data FROM {tableName} WHERE TypeName = @typeName AND ({whereClause});";
                 cmd.Parameters.AddWithValue("@typeName", typeName);
                 BindParameters(cmd, parameters);
             },
@@ -429,10 +456,11 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     public Task<int> Count<T>(string? whereClause = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
     {
-        return this.ExecuteAsync(async () =>
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName, async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            var sql = "SELECT COUNT(*) FROM documents WHERE TypeName = @typeName";
+            var sql = $"SELECT COUNT(*) FROM {tableName} WHERE TypeName = @typeName";
             if (!string.IsNullOrWhiteSpace(whereClause))
                 sql += $" AND ({whereClause})";
             cmd.CommandText = sql + ";";
@@ -448,10 +476,11 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     public Task<bool> Remove<T>(object id, CancellationToken cancellationToken = default) where T : class
     {
         var resolvedId = this.idCache.GetOrCreate<T>(null).ResolveId(id);
-        return this.ExecuteAsync(async () =>
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName, async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = "DELETE FROM documents WHERE Id = @id AND TypeName = @typeName;";
+            cmd.CommandText = $"DELETE FROM {tableName} WHERE Id = @id AND TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@id", resolvedId);
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
@@ -463,10 +492,11 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     public Task<int> Clear<T>(CancellationToken cancellationToken = default) where T : class
     {
-        return this.ExecuteAsync(async () =>
+        var tableName = this.ResolveTableName<T>();
+        return this.ExecuteAsync(tableName, async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = "DELETE FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"DELETE FROM {tableName} WHERE TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
             this.Log(cmd.CommandText);
@@ -478,12 +508,12 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
     public Task RunInTransaction(Func<IDocumentStore, Task> operation, CancellationToken cancellationToken = default)
     {
-        return this.ExecuteAsync(async () =>
+        return this.ExecuteAsync(this.options.TableName, async () =>
         {
             await using var transaction = await this.connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var txStore = new TransactionalDocumentStore(this.connection, transaction, this.options, this.jsonOptions, this.logging, this.idCache);
+                var txStore = new TransactionalDocumentStore(this.connection, transaction, this.options, this.jsonOptions, this.logging, this.idCache, this.initializedTables);
                 await operation(txStore).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -501,12 +531,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     {
         var jsonPath = IndexExpressionHelper.ResolveJsonPath(expression, this.jsonOptions, jsonTypeInfo);
         var typeName = this.ResolveTypeName<T>();
+        var tableName = this.ResolveTableName<T>();
         var indexName = IndexExpressionHelper.BuildIndexName(typeName, jsonPath);
 
-        return this.ExecuteAsync(async () =>
+        return this.ExecuteAsync(tableName, async () =>
         {
             await using var cmd = this.connection.CreateCommand();
-            cmd.CommandText = $"CREATE INDEX IF NOT EXISTS {indexName} ON documents (json_extract(Data, '$.{jsonPath}')) WHERE TypeName = '{typeName}';";
+            cmd.CommandText = $"CREATE INDEX IF NOT EXISTS {indexName} ON {tableName} (json_extract(Data, '$.{jsonPath}')) WHERE TypeName = '{typeName}';";
             this.Log(cmd.CommandText);
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
@@ -516,9 +547,10 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     {
         var jsonPath = IndexExpressionHelper.ResolveJsonPath(expression, this.jsonOptions, jsonTypeInfo);
         var typeName = this.ResolveTypeName<T>();
+        var tableName = this.ResolveTableName<T>();
         var indexName = IndexExpressionHelper.BuildIndexName(typeName, jsonPath);
 
-        return this.ExecuteAsync(async () =>
+        return this.ExecuteAsync(tableName, async () =>
         {
             await using var cmd = this.connection.CreateCommand();
             cmd.CommandText = $"DROP INDEX IF EXISTS {indexName};";
@@ -530,13 +562,14 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     public Task DropAllIndexesAsync<T>(CancellationToken cancellationToken = default) where T : class
     {
         var typeName = this.ResolveTypeName<T>();
+        var tableName = this.ResolveTableName<T>();
         var sanitizedType = typeName.Replace('.', '_');
         var prefix = $"idx_json_{sanitizedType}_%";
 
-        return this.ExecuteAsync(async () =>
+        return this.ExecuteAsync(tableName, async () =>
         {
             await using var queryCmd = this.connection.CreateCommand();
-            queryCmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'documents' AND name LIKE @prefix;";
+            queryCmd.CommandText = $"SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = '{tableName}' AND name LIKE @prefix;";
             queryCmd.Parameters.AddWithValue("@prefix", prefix);
 
             this.Log(queryCmd.CommandText);
@@ -662,7 +695,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
     public Task Backup(string destinationPath, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
-        return this.ExecuteAsync(async () =>
+        return this.ExecuteAsync(this.options.TableName, async () =>
         {
             var destinationConnectionString = new SqliteConnectionStringBuilder
             {
@@ -692,6 +725,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         readonly JsonSerializerOptions jsonOptions;
         readonly Action<string>? logging;
         readonly IdAccessorCache idCache;
+        readonly HashSet<string> initializedTables;
 
         public TransactionalDocumentStore(
             SqliteConnection connection,
@@ -699,7 +733,8 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             DocumentStoreOptions options,
             JsonSerializerOptions jsonOptions,
             Action<string>? logging,
-            IdAccessorCache idCache)
+            IdAccessorCache idCache,
+            HashSet<string> initializedTables)
         {
             this.connection = connection;
             this.transaction = transaction;
@@ -707,11 +742,14 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             this.jsonOptions = jsonOptions;
             this.logging = logging;
             this.idCache = idCache;
+            this.initializedTables = initializedTables;
         }
 
         void Log(string sql) => this.logging?.Invoke(sql);
 
         string ResolveTypeName<T>() => TypeNameResolver.Resolve(typeof(T), this.options.TypeNameResolution);
+
+        string ResolveTableName<T>() => this.options.ResolveTableName(this.ResolveTypeName<T>());
 
         JsonTypeInfo<T>? FindTypeInfo<T>(JsonTypeInfo<T>? provided)
             => SqliteDocumentStore.FindTypeInfo(provided, this.jsonOptions, this.options.UseReflectionFallback);
@@ -721,6 +759,27 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             var cmd = this.connection.CreateCommand();
             cmd.Transaction = (SqliteTransaction)this.transaction;
             return cmd;
+        }
+
+        async Task EnsureTableAsync(string tableName, CancellationToken ct)
+        {
+            if (!this.initializedTables.Add(tableName))
+                return;
+
+            await using var cmd = this.CreateCommand();
+            cmd.CommandText = $"""
+                CREATE TABLE IF NOT EXISTS {tableName} (
+                    Id TEXT NOT NULL,
+                    TypeName TEXT NOT NULL,
+                    Data TEXT NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    UpdatedAt TEXT NOT NULL,
+                    PRIMARY KEY (Id, TypeName)
+                );
+                CREATE INDEX IF NOT EXISTS idx_{tableName}_typename ON {tableName} (TypeName);
+                """;
+            this.Log(cmd.CommandText);
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
         // ── IQueryExecutor ──────────────────────────────────────────────
@@ -734,6 +793,8 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         SqliteCommand IQueryExecutor.CreateCommand() => this.CreateCommand();
 
         string IQueryExecutor.ResolveTypeName<T>() => this.ResolveTypeName<T>();
+
+        string IQueryExecutor.ResolveTableName<T>() => this.ResolveTableName<T>();
 
         JsonSerializerOptions IQueryExecutor.JsonOptions => this.jsonOptions;
 
@@ -761,12 +822,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
         // ── CRUD ────────────────────────────────────────────────────────
 
-        async Task InsertCoreAsync(string id, string typeName, string json, CancellationToken ct)
+        async Task InsertCoreAsync(string tableName, string id, string typeName, string json, CancellationToken ct)
         {
+            await this.EnsureTableAsync(tableName, ct).ConfigureAwait(false);
             var now = DateTimeOffset.UtcNow.ToString("O");
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO documents (Id, TypeName, Data, CreatedAt, UpdatedAt)
+            cmd.CommandText = $"""
+                INSERT INTO {tableName} (Id, TypeName, Data, CreatedAt, UpdatedAt)
                 VALUES (@id, @typeName, @data, @now, @now);
                 """;
             cmd.Parameters.AddWithValue("@id", id);
@@ -785,12 +847,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             }
         }
 
-        async Task UpdateCoreAsync(string id, string typeName, string json, CancellationToken ct)
+        async Task UpdateCoreAsync(string tableName, string id, string typeName, string json, CancellationToken ct)
         {
+            await this.EnsureTableAsync(tableName, ct).ConfigureAwait(false);
             var now = DateTimeOffset.UtcNow.ToString("O");
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = """
-                UPDATE documents
+            cmd.CommandText = $"""
+                UPDATE {tableName}
                 SET Data = @data, UpdatedAt = @now
                 WHERE Id = @id AND TypeName = @typeName;
                 """;
@@ -805,16 +868,17 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                     $"No document of type '{typeName}' with Id '{id}' was found to update.");
         }
 
-        async Task UpsertMergeCoreAsync(string id, string typeName, string json, CancellationToken ct)
+        async Task UpsertMergeCoreAsync(string tableName, string id, string typeName, string json, CancellationToken ct)
         {
+            await this.EnsureTableAsync(tableName, ct).ConfigureAwait(false);
             json = StripNullProperties(json);
             var now = DateTimeOffset.UtcNow.ToString("O");
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO documents (Id, TypeName, Data, CreatedAt, UpdatedAt)
+            cmd.CommandText = $"""
+                INSERT INTO {tableName} (Id, TypeName, Data, CreatedAt, UpdatedAt)
                 VALUES (@id, @typeName, @data, @now, @now)
                 ON CONFLICT(Id, TypeName) DO UPDATE SET
-                    Data = json_patch(documents.Data, @data),
+                    Data = json_patch({tableName}.Data, @data),
                     UpdatedAt = @now;
                 """;
             cmd.Parameters.AddWithValue("@id", id);
@@ -825,12 +889,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
-        async Task<bool> SetPropertyCoreAsync(string id, string typeName, string jsonPath, object? value, CancellationToken ct)
+        async Task<bool> SetPropertyCoreAsync(string tableName, string id, string typeName, string jsonPath, object? value, CancellationToken ct)
         {
+            await this.EnsureTableAsync(tableName, ct).ConfigureAwait(false);
             var now = DateTimeOffset.UtcNow.ToString("O");
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = """
-                UPDATE documents
+            cmd.CommandText = $"""
+                UPDATE {tableName}
                 SET Data = json_set(Data, @path, json(@value)), UpdatedAt = @now
                 WHERE Id = @id AND TypeName = @typeName;
                 """;
@@ -844,12 +909,13 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             return rows > 0;
         }
 
-        async Task<bool> RemovePropertyCoreAsync(string id, string typeName, string jsonPath, CancellationToken ct)
+        async Task<bool> RemovePropertyCoreAsync(string tableName, string id, string typeName, string jsonPath, CancellationToken ct)
         {
+            await this.EnsureTableAsync(tableName, ct).ConfigureAwait(false);
             var now = DateTimeOffset.UtcNow.ToString("O");
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = """
-                UPDATE documents
+            cmd.CommandText = $"""
+                UPDATE {tableName}
                 SET Data = json_remove(Data, @path), UpdatedAt = @now
                 WHERE Id = @id AND TypeName = @typeName;
                 """;
@@ -862,7 +928,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             return rows > 0;
         }
 
-        async Task<string> GenerateIdAsync(IdKind kind, string typeName, CancellationToken ct)
+        async Task<string> GenerateIdAsync(IdKind kind, string tableName, string typeName, CancellationToken ct)
         {
             switch (kind)
             {
@@ -876,7 +942,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                 case IdKind.Long:
                     await using (var cmd = this.CreateCommand())
                     {
-                        cmd.CommandText = "SELECT MAX(CAST(Id AS INTEGER)) FROM documents WHERE TypeName = @typeName;";
+                        cmd.CommandText = $"SELECT MAX(CAST(Id AS INTEGER)) FROM {tableName} WHERE TypeName = @typeName;";
                         cmd.Parameters.AddWithValue("@typeName", typeName);
                         this.Log(cmd.CommandText);
                         var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
@@ -893,6 +959,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         {
             var typeInfo = FindTypeInfo(jsonTypeInfo);
             var accessor = this.idCache.GetOrCreate(typeInfo);
+            var tableName = this.ResolveTableName<T>();
 
             string id;
             if (accessor.IsDefaultId(document))
@@ -903,7 +970,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                         "String Id properties are not auto-generated during Insert.");
 
                 var typeName = this.ResolveTypeName<T>();
-                id = await this.GenerateIdAsync(accessor.Kind, typeName, cancellationToken).ConfigureAwait(false);
+                id = await this.GenerateIdAsync(accessor.Kind, tableName, typeName, cancellationToken).ConfigureAwait(false);
                 accessor.SetId(document, id);
             }
             else
@@ -911,7 +978,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
                 id = accessor.GetIdAsString(document);
             }
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
-            await this.InsertCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+            await this.InsertCoreAsync(tableName, id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task Update<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
@@ -926,7 +993,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
             var id = accessor.GetIdAsString(document);
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
-            await this.UpdateCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+            await this.UpdateCoreAsync(this.ResolveTableName<T>(), id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task Upsert<T>(T patch, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
@@ -941,7 +1008,7 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
             var id = accessor.GetIdAsString(patch);
             var json = SerializeDocument(patch, typeInfo, this.jsonOptions);
-            await this.UpsertMergeCoreAsync(id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+            await this.UpsertMergeCoreAsync(this.ResolveTableName<T>(), id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<bool> SetProperty<T>(object id, Expression<Func<T, object>> property, object? value, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
@@ -949,7 +1016,8 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             var typeInfo = FindTypeInfo(jsonTypeInfo);
             var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
             var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
-            return await this.SetPropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken).ConfigureAwait(false);
+            var tableName = this.ResolveTableName<T>();
+            return await this.SetPropertyCoreAsync(tableName, resolvedId, this.ResolveTypeName<T>(), jsonPath, value, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<bool> RemoveProperty<T>(object id, Expression<Func<T, object>> property, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
@@ -957,15 +1025,18 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             var typeInfo = FindTypeInfo(jsonTypeInfo);
             var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
             var jsonPath = ResolvePropertyPath(property, this.jsonOptions, typeInfo);
-            return await this.RemovePropertyCoreAsync(resolvedId, this.ResolveTypeName<T>(), jsonPath, cancellationToken).ConfigureAwait(false);
+            var tableName = this.ResolveTableName<T>();
+            return await this.RemovePropertyCoreAsync(tableName, resolvedId, this.ResolveTypeName<T>(), jsonPath, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<T?> Get<T>(object id, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
         {
             var typeInfo = FindTypeInfo(jsonTypeInfo);
             var resolvedId = this.idCache.GetOrCreate(typeInfo).ResolveId(id);
+            var tableName = this.ResolveTableName<T>();
+            await this.EnsureTableAsync(tableName, cancellationToken).ConfigureAwait(false);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = "SELECT Data FROM documents WHERE Id = @id AND TypeName = @typeName;";
+            cmd.CommandText = $"SELECT Data FROM {tableName} WHERE Id = @id AND TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@id", resolvedId);
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
 
@@ -981,8 +1052,10 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         public async Task<IReadOnlyList<T>> Query<T>(string whereClause, JsonTypeInfo<T>? jsonTypeInfo = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
         {
             var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var tableName = this.ResolveTableName<T>();
+            await this.EnsureTableAsync(tableName, cancellationToken).ConfigureAwait(false);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.CommandText = $"SELECT Data FROM {tableName} WHERE TypeName = @typeName AND ({whereClause});";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindParameters(cmd, parameters);
             this.Log(cmd.CommandText);
@@ -994,8 +1067,10 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         public async IAsyncEnumerable<T> QueryStream<T>(string whereClause, JsonTypeInfo<T>? jsonTypeInfo = null, object? parameters = null, [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
         {
             var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var tableName = this.ResolveTableName<T>();
+            await this.EnsureTableAsync(tableName, cancellationToken).ConfigureAwait(false);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = $"SELECT Data FROM documents WHERE TypeName = @typeName AND ({whereClause});";
+            cmd.CommandText = $"SELECT Data FROM {tableName} WHERE TypeName = @typeName AND ({whereClause});";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             BindParameters(cmd, parameters);
 
@@ -1009,8 +1084,10 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
         public async Task<int> Count<T>(string? whereClause = null, object? parameters = null, CancellationToken cancellationToken = default) where T : class
         {
+            var tableName = this.ResolveTableName<T>();
+            await this.EnsureTableAsync(tableName, cancellationToken).ConfigureAwait(false);
             await using var cmd = this.CreateCommand();
-            var sql = "SELECT COUNT(*) FROM documents WHERE TypeName = @typeName";
+            var sql = $"SELECT COUNT(*) FROM {tableName} WHERE TypeName = @typeName";
             if (!string.IsNullOrWhiteSpace(whereClause))
                 sql += $" AND ({whereClause})";
             cmd.CommandText = sql + ";";
@@ -1025,8 +1102,10 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         public async Task<bool> Remove<T>(object id, CancellationToken cancellationToken = default) where T : class
         {
             var resolvedId = this.idCache.GetOrCreate<T>(null).ResolveId(id);
+            var tableName = this.ResolveTableName<T>();
+            await this.EnsureTableAsync(tableName, cancellationToken).ConfigureAwait(false);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = "DELETE FROM documents WHERE Id = @id AND TypeName = @typeName;";
+            cmd.CommandText = $"DELETE FROM {tableName} WHERE Id = @id AND TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@id", resolvedId);
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             this.Log(cmd.CommandText);
@@ -1036,8 +1115,10 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
 
         public async Task<int> Clear<T>(CancellationToken cancellationToken = default) where T : class
         {
+            var tableName = this.ResolveTableName<T>();
+            await this.EnsureTableAsync(tableName, cancellationToken).ConfigureAwait(false);
             await using var cmd = this.CreateCommand();
-            cmd.CommandText = "DELETE FROM documents WHERE TypeName = @typeName;";
+            cmd.CommandText = $"DELETE FROM {tableName} WHERE TypeName = @typeName;";
             cmd.Parameters.AddWithValue("@typeName", this.ResolveTypeName<T>());
             this.Log(cmd.CommandText);
             return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

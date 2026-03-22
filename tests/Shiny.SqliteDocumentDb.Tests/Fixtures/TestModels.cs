@@ -128,3 +128,16 @@ public class BadIdTypeModel
     public decimal Id { get; set; }
     public string Name { get; set; } = "";
 }
+
+public class CustomIdModel
+{
+    public string UserId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int Age { get; set; }
+}
+
+public class GuidCustomIdModel
+{
+    public Guid Key { get; set; }
+    public string Label { get; set; } = "";
+}

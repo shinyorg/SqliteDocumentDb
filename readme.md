@@ -216,11 +216,21 @@ Streaming yields results one-at-a-time without building an intermediate `List<T>
 dotnet add package Shiny.SqliteDocumentDb
 ```
 
+For dependency injection support, also install:
+
+```bash
+dotnet add package Shiny.SqliteDocumentDb.Extensions.DependencyInjection
+```
+
 ## Setup
 
 ### Direct instantiation
 
 ```csharp
+// Convenience constructor — connection string only
+var store = new SqliteDocumentStore("Data Source=mydata.db");
+
+// Full options
 var store = new SqliteDocumentStore(new DocumentStoreOptions
 {
     ConnectionString = "Data Source=mydata.db"
@@ -235,9 +245,12 @@ var store = new SqliteDocumentStore(new DocumentStoreOptions
 | `TypeNameResolution` | `TypeNameResolution` | `ShortName` | How type names are stored — `ShortName` (e.g. `User`) or `FullName` (e.g. `MyApp.Models.User`) |
 | `JsonSerializerOptions` | `JsonSerializerOptions?` | `null` | JSON serialization settings. When a `JsonSerializerContext` is attached as the `TypeInfoResolver`, all methods auto-resolve type info from the context |
 | `UseReflectionFallback` | `bool` | `true` | When `false`, throws `InvalidOperationException` if a type can't be resolved from the configured `TypeInfoResolver` instead of falling back to reflection. Recommended for AOT deployments |
+| `TableName` | `string` | `"documents"` | Name of the default shared document table. Types not explicitly mapped via `MapTypeToTable<T>()` are stored here |
 | `Logging` | `Action<string>?` | `null` | Callback invoked with every SQL statement executed |
 
 ### Dependency injection
+
+> **Note:** DI extensions are in a separate package: `Shiny.SqliteDocumentDb.Extensions.DependencyInjection`
 
 ```csharp
 services.AddSqliteDocumentStore("Data Source=mydata.db");
@@ -265,6 +278,53 @@ services.AddSqliteDocumentStore(opts =>
     opts.UseReflectionFallback = false; // throw instead of using reflection for unregistered types
 });
 ```
+
+## Table-Per-Type Mapping
+
+By default all document types share a single table (`"documents"`). You can map specific types to dedicated tables while unmapped types continue using the shared table.
+
+### Basic mapping
+
+```csharp
+var store = new SqliteDocumentStore(new DocumentStoreOptions
+{
+    ConnectionString = "Data Source=mydata.db"
+}.MapTypeToTable<User>()            // auto-derived table name → "User"
+ .MapTypeToTable<Order>("orders")   // explicit table name
+);
+
+// Users → "User" table, Orders → "orders" table, everything else → "documents"
+```
+
+### Custom Id property
+
+Types mapped to a dedicated table can use an alternate property as the document Id instead of the default `Id`. The Id property must be `Guid`, `int`, `long`, or `string`.
+
+```csharp
+var store = new SqliteDocumentStore(new DocumentStoreOptions
+{
+    ConnectionString = "Data Source=mydata.db"
+}.MapTypeToTable<Customer>("customers", c => c.CustomerId)
+ .MapTypeToTable<Sensor>("sensors", s => s.DeviceKey)
+);
+```
+
+Auto-generation rules still apply — `Guid` and numeric Ids are auto-generated when default, and the value is written back to the property after insert.
+
+### API reference
+
+| Overload | Description |
+|---|---|
+| `MapTypeToTable<T>()` | Auto-derive table name, default `Id` property |
+| `MapTypeToTable<T>(tableName)` | Explicit table name, default `Id` property |
+| `MapTypeToTable<T>(idProperty)` | Auto-derive table name, custom Id property |
+| `MapTypeToTable<T>(tableName, idProperty)` | Explicit table name, custom Id property |
+
+- **Fluent** — all overloads return `DocumentStoreOptions` for chaining
+- **Duplicate protection** — mapping two types to the same table throws `ArgumentException`
+- **AOT-safe** — type and property names are resolved at registration time, not at runtime
+- **Id remapping requires a table mapping** — custom Id properties are only available through `MapTypeToTable`
+- Tables are lazily created on first use with the same schema and composite primary key
 
 ## AOT Setup
 

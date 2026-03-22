@@ -10,6 +10,7 @@ internal interface IQueryExecutor
     IAsyncEnumerable<T> ReadStreamAsync<T>(Action<SqliteCommand> configure, Func<string, T> deserialize, [EnumeratorCancellation] CancellationToken ct = default);
     SqliteCommand CreateCommand();
     string ResolveTypeName<T>();
+    string ResolveTableName<T>();
     JsonSerializerOptions JsonOptions { get; }
     Action<string>? Logging { get; }
 }

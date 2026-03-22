@@ -77,11 +77,12 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
         var orderByClause = BuildOrderByClause();
         var paginationClause = BuildPaginationClause();
         var typeName = this.executor.ResolveTypeName<T>();
+        var tableName = this.executor.ResolveTableName<T>();
 
         return this.executor.ExecuteAsync(async () =>
         {
             await using var cmd = this.executor.CreateCommand();
-            var sql = "SELECT Data FROM documents WHERE TypeName = @typeName";
+            var sql = $"SELECT Data FROM {tableName} WHERE TypeName = @typeName";
             if (whereClause != null)
                 sql += $" AND ({whereClause})";
             sql += orderByClause + paginationClause + ";";
@@ -101,11 +102,12 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
         var orderByClause = BuildOrderByClause();
         var paginationClause = BuildPaginationClause();
         var typeName = this.executor.ResolveTypeName<T>();
+        var tableName = this.executor.ResolveTableName<T>();
 
         return this.executor.ReadStreamAsync<T>(
             cmd =>
             {
-                var sql = "SELECT Data FROM documents WHERE TypeName = @typeName";
+                var sql = $"SELECT Data FROM {tableName} WHERE TypeName = @typeName";
                 if (whereClause != null)
                     sql += $" AND ({whereClause})";
                 sql += orderByClause + paginationClause + ";";
@@ -122,11 +124,12 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
     {
         var (whereClause, whereParams) = BuildWhereClause();
         var typeName = this.executor.ResolveTypeName<T>();
+        var tableName = this.executor.ResolveTableName<T>();
 
         return this.executor.ExecuteAsync(async () =>
         {
             await using var cmd = this.executor.CreateCommand();
-            var sql = "SELECT COUNT(*) FROM documents WHERE TypeName = @typeName";
+            var sql = $"SELECT COUNT(*) FROM {tableName} WHERE TypeName = @typeName";
             if (whereClause != null)
                 sql += $" AND ({whereClause})";
             cmd.CommandText = sql + ";";
@@ -144,11 +147,12 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
     {
         var (whereClause, whereParams) = BuildWhereClause();
         var typeName = this.executor.ResolveTypeName<T>();
+        var tableName = this.executor.ResolveTableName<T>();
 
         return this.executor.ExecuteAsync(async () =>
         {
             await using var cmd = this.executor.CreateCommand();
-            var sql = "SELECT EXISTS(SELECT 1 FROM documents WHERE TypeName = @typeName";
+            var sql = $"SELECT EXISTS(SELECT 1 FROM {tableName} WHERE TypeName = @typeName";
             if (whereClause != null)
                 sql += $" AND ({whereClause})";
             cmd.CommandText = sql + ");";
@@ -166,11 +170,12 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
     {
         var (whereClause, whereParams) = BuildWhereClause();
         var typeName = this.executor.ResolveTypeName<T>();
+        var tableName = this.executor.ResolveTableName<T>();
 
         return this.executor.ExecuteAsync(async () =>
         {
             await using var cmd = this.executor.CreateCommand();
-            var sql = "DELETE FROM documents WHERE TypeName = @typeName";
+            var sql = $"DELETE FROM {tableName} WHERE TypeName = @typeName";
             if (whereClause != null)
                 sql += $" AND ({whereClause})";
             cmd.CommandText = sql + ";";
@@ -189,11 +194,12 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
         var jsonPath = IndexExpressionHelper.ResolveJsonPath(property, this.jsonOptions, typeInfo);
         var (whereClause, whereParams) = BuildWhereClause();
         var typeName = this.executor.ResolveTypeName<T>();
+        var tableName = this.executor.ResolveTableName<T>();
 
         return this.executor.ExecuteAsync(async () =>
         {
             await using var cmd = this.executor.CreateCommand();
-            var sql = "UPDATE documents SET Data = json_set(Data, @path, json(@value)), UpdatedAt = @now WHERE TypeName = @typeName";
+            var sql = $"UPDATE {tableName} SET Data = json_set(Data, @path, json(@value)), UpdatedAt = @now WHERE TypeName = @typeName";
             if (whereClause != null)
                 sql += $" AND ({whereClause})";
             cmd.CommandText = sql + ";";
@@ -224,11 +230,12 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
         var jsonPath = AggregateTranslator.ResolveJsonPathFromSelector(selector, this.jsonOptions, typeInfo);
         var (whereClause, whereParams) = BuildWhereClause();
         var typeName = this.executor.ResolveTypeName<T>();
+        var tableName = this.executor.ResolveTableName<T>();
 
         return this.executor.ExecuteAsync(async () =>
         {
             await using var cmd = this.executor.CreateCommand();
-            var sql = $"SELECT AVG(json_extract(Data, '$.{jsonPath}')) FROM documents WHERE TypeName = @typeName";
+            var sql = $"SELECT AVG(json_extract(Data, '$.{jsonPath}')) FROM {tableName} WHERE TypeName = @typeName";
             if (whereClause != null)
                 sql += $" AND ({whereClause})";
             cmd.CommandText = sql + ";";
@@ -250,11 +257,12 @@ internal sealed class DocumentQuery<T> : IDocumentQuery<T> where T : class
         var jsonPath = AggregateTranslator.ResolveJsonPathFromSelector(selector, this.jsonOptions, typeInfo);
         var (whereClause, whereParams) = BuildWhereClause();
         var typeName = this.executor.ResolveTypeName<T>();
+        var tableName = this.executor.ResolveTableName<T>();
 
         return this.executor.ExecuteAsync(async () =>
         {
             await using var cmd = this.executor.CreateCommand();
-            var sql = $"SELECT {sqlFunc}(json_extract(Data, '$.{jsonPath}')) FROM documents WHERE TypeName = @typeName";
+            var sql = $"SELECT {sqlFunc}(json_extract(Data, '$.{jsonPath}')) FROM {tableName} WHERE TypeName = @typeName";
             if (whereClause != null)
                 sql += $" AND ({whereClause})";
             cmd.CommandText = sql + ";";
