@@ -38,7 +38,7 @@ jobs:
           dotnet-version: '10.0.x'
 
     - name: Build
-      run: dotnet build build.slnx /restore -m -property:Configuration=Release -property:PublicRelease=true
+      run: dotnet build build.slnf /restore -m -property:Configuration=Release -property:PublicRelease=true
 
     - name: Test
       run: dotnet test tests/Shiny.SqliteDocumentDb.Tests/Shiny.SqliteDocumentDb.Tests.csproj --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
