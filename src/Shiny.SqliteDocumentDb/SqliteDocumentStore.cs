@@ -114,6 +114,20 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
         }
     }
 
+    async Task<TResult> ExecuteWithResultAsync<TResult>(string tableName, Func<Task<TResult>> operation, CancellationToken ct)
+    {
+        await this.semaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await this.EnsureTableInitializedAsync(tableName, ct).ConfigureAwait(false);
+            return await operation().ConfigureAwait(false);
+        }
+        finally
+        {
+            this.semaphore.Release();
+        }
+    }
+
     async Task InsertCoreAsync(string tableName, string id, string typeName, string json, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow.ToString("O");
@@ -138,6 +152,87 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             throw new InvalidOperationException(
                 $"A document of type '{typeName}' with Id '{id}' already exists.", ex);
         }
+    }
+
+    static async Task<int> BatchInsertCoreAsync<T>(
+        string tableName,
+        string typeName,
+        IEnumerable<T> documents,
+        IdAccessor<T> accessor,
+        JsonTypeInfo<T>? typeInfo,
+        JsonSerializerOptions jsonOptions,
+        Action<string>? log,
+        Func<SqliteCommand> createCommand,
+        Func<IdKind, string, string, CancellationToken, Task<string>> generateId,
+        CancellationToken ct) where T : class
+    {
+        var now = DateTimeOffset.UtcNow.ToString("O");
+        await using var cmd = createCommand();
+        cmd.CommandText = $"""
+            INSERT INTO {tableName} (Id, TypeName, Data, CreatedAt, UpdatedAt)
+            VALUES (@id, @typeName, @data, @now, @now);
+            """;
+        var pId = cmd.Parameters.Add("@id", SqliteType.Text);
+        var pTypeName = cmd.Parameters.Add("@typeName", SqliteType.Text);
+        var pData = cmd.Parameters.Add("@data", SqliteType.Text);
+        var pNow = cmd.Parameters.Add("@now", SqliteType.Text);
+        pTypeName.Value = typeName;
+        pNow.Value = now;
+        cmd.Prepare();
+
+        log?.Invoke(cmd.CommandText);
+        long nextInt = -1;
+        int count = 0;
+
+        foreach (var document in documents)
+        {
+            string id;
+            if (accessor.IsDefaultId(document))
+            {
+                if (accessor.Kind == IdKind.String)
+                    throw new InvalidOperationException(
+                        $"Insert requires a non-empty string Id on '{typeof(T).Name}'. " +
+                        "String Id properties are not auto-generated during Insert.");
+
+                if (accessor.Kind is IdKind.Int or IdKind.Long)
+                {
+                    if (nextInt < 0)
+                    {
+                        var seed = await generateId(accessor.Kind, tableName, typeName, ct).ConfigureAwait(false);
+                        nextInt = long.Parse(seed, CultureInfo.InvariantCulture);
+                    }
+                    else
+                    {
+                        nextInt++;
+                    }
+                    id = nextInt.ToString(CultureInfo.InvariantCulture);
+                }
+                else
+                {
+                    id = await generateId(accessor.Kind, tableName, typeName, ct).ConfigureAwait(false);
+                }
+                accessor.SetId(document, id);
+            }
+            else
+            {
+                id = accessor.GetIdAsString(document);
+            }
+
+            pId.Value = id;
+            pData.Value = SerializeDocument(document, typeInfo, jsonOptions);
+
+            try
+            {
+                await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+            {
+                throw new InvalidOperationException(
+                    $"A document of type '{typeName}' with Id '{id}' already exists.", ex);
+            }
+            count++;
+        }
+        return count;
     }
 
     async Task UpdateCoreAsync(string tableName, string id, string typeName, string json, CancellationToken ct)
@@ -309,6 +404,36 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             }
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
             await this.InsertCoreAsync(tableName, id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    public Task<int> BatchInsert<T>(IEnumerable<T> documents, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+    {
+        var typeInfo = FindTypeInfo(jsonTypeInfo);
+        var accessor = this.idCache.GetOrCreate(typeInfo);
+        var tableName = this.ResolveTableName<T>();
+        var typeName = this.ResolveTypeName<T>();
+
+        return this.ExecuteWithResultAsync(tableName, async () =>
+        {
+            await using var transaction = await this.connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var count = await BatchInsertCoreAsync(
+                    tableName, typeName, documents, accessor, typeInfo,
+                    this.jsonOptions, this.logging,
+                    () => this.connection.CreateCommand(),
+                    this.GenerateIdAsync,
+                    cancellationToken
+                ).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return count;
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                throw;
+            }
         }, cancellationToken);
     }
 
@@ -1002,6 +1127,23 @@ public class SqliteDocumentStore : IDocumentStore, IQueryExecutor, IDisposable
             }
             var json = SerializeDocument(document, typeInfo, this.jsonOptions);
             await this.InsertCoreAsync(tableName, id, this.ResolveTypeName<T>(), json, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task<int> BatchInsert<T>(IEnumerable<T> documents, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class
+        {
+            var typeInfo = FindTypeInfo(jsonTypeInfo);
+            var accessor = this.idCache.GetOrCreate(typeInfo);
+            var tableName = this.ResolveTableName<T>();
+            var typeName = this.ResolveTypeName<T>();
+            await this.EnsureTableAsync(tableName, cancellationToken).ConfigureAwait(false);
+
+            return await BatchInsertCoreAsync(
+                tableName, typeName, documents, accessor, typeInfo,
+                this.jsonOptions, this.logging,
+                this.CreateCommand,
+                this.GenerateIdAsync,
+                cancellationToken
+            ).ConfigureAwait(false);
         }
 
         public async Task Update<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class

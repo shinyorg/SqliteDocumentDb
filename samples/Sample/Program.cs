@@ -77,9 +77,8 @@ var orders = new[]
         Tags = []
     }
 };
-foreach (var o in orders)
-    await store.Insert(o);
-Console.WriteLine($"Inserted {await store.Count<Order>()} orders (in 'orders' table)");
+var batchCount = await store.BatchInsert(orders);
+Console.WriteLine($"Batch-inserted {batchCount} orders (in 'orders' table)");
 
 // Sensor — uses custom Id property (DeviceKey) with Guid auto-generation
 var sensor = new Sensor { Location = "Warehouse A", Temperature = 22.5, ReadingAt = DateTimeOffset.UtcNow };
@@ -303,7 +302,44 @@ Console.WriteLine($"Customers with age >= 30: {string.Join(", ", rawResults.Sele
 Console.WriteLine();
 
 // ═══════════════════════════════════════════════════════════════════
-// 16. Transactions
+// 16. Dynamic query building
+// ═══════════════════════════════════════════════════════════════════
+Console.WriteLine("═══ Dynamic Query Building ═══");
+
+// Simulate search parameters (e.g. from user input / API request)
+string? nameFilter = "A";
+int? minAgeFilter = null;
+string? emailFilter = "alice";
+string sortBy = "name";
+int page = 0, pageSize = 10;
+
+var dynamicQuery = store.Query<Customer>();
+
+if (!string.IsNullOrEmpty(nameFilter))
+    dynamicQuery = dynamicQuery.Where(c => c.Name.StartsWith(nameFilter));
+
+if (minAgeFilter.HasValue)
+    dynamicQuery = dynamicQuery.Where(c => c.Age >= minAgeFilter.Value);
+
+if (!string.IsNullOrEmpty(emailFilter))
+    dynamicQuery = dynamicQuery.Where(c => c.Email != null && c.Email.Contains(emailFilter));
+
+dynamicQuery = sortBy switch
+{
+    "name" => dynamicQuery.OrderBy(c => c.Name),
+    "age"  => dynamicQuery.OrderByDescending(c => c.Age),
+    _ => dynamicQuery
+};
+
+var dynamicResults = await dynamicQuery.Paginate(page * pageSize, pageSize).ToList();
+var totalMatches = await dynamicQuery.Count();
+Console.WriteLine($"Dynamic query: {dynamicResults.Count} result(s) on page, {totalMatches} total match(es)");
+foreach (var c in dynamicResults)
+    Console.WriteLine($"  {c.Name} (age {c.Age})");
+Console.WriteLine();
+
+// ═══════════════════════════════════════════════════════════════════
+// 17. Transactions
 // ═══════════════════════════════════════════════════════════════════
 Console.WriteLine("═══ Transactions ═══");
 try
@@ -330,7 +366,7 @@ Console.WriteLine($"Customers after successful tx: {await store.Count<Customer>(
 Console.WriteLine();
 
 // ═══════════════════════════════════════════════════════════════════
-// 17. Index management
+// 18. Index management
 // ═══════════════════════════════════════════════════════════════════
 Console.WriteLine("═══ Index Management ═══");
 await store.CreateIndexAsync<Customer>(c => c.Name, jsonContext.Customer);
@@ -347,7 +383,7 @@ Console.WriteLine("Dropped all indexes on Order");
 Console.WriteLine();
 
 // ═══════════════════════════════════════════════════════════════════
-// 18. Remove / Clear
+// 19. Remove / Clear
 // ═══════════════════════════════════════════════════════════════════
 Console.WriteLine("═══ Remove / Clear ═══");
 var wasRemoved = await store.Remove<Customer>("eve");
@@ -358,7 +394,7 @@ Console.WriteLine($"Cleared {cleared} sensor(s)");
 Console.WriteLine();
 
 // ═══════════════════════════════════════════════════════════════════
-// 19. Backup
+// 20. Backup
 // ═══════════════════════════════════════════════════════════════════
 Console.WriteLine("═══ Backup ═══");
 var backupPath = Path.Combine(Path.GetTempPath(), "sample-docdb-backup.db");

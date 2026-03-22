@@ -23,6 +23,8 @@ triggers:
   - GetDiff
   - JsonPatchDocument
   - document diff
+  - BatchInsert
+  - batch insert
 ---
 
 # Shiny SqliteDocumentDb Skill
@@ -48,6 +50,7 @@ Invoke this skill when the user wants to:
 - Map document types to dedicated tables (table-per-type)
 - Use a custom Id property instead of the default `Id`
 - Diff a modified object against a stored document (`GetDiff`)
+- Batch insert multiple documents efficiently (`BatchInsert`)
 
 ## Library Overview
 
@@ -234,6 +237,25 @@ await store.Insert(user);
 
 // Explicit ID
 await store.Insert(new User { Id = "user-1", Name = "Alice", Age = 25 });
+```
+
+### Batch insert
+
+`BatchInsert` inserts multiple documents in a single transaction with prepared command reuse. Returns the count inserted. Rolls back atomically on failure. Auto-generates IDs for Guid, int, and long Id types.
+
+```csharp
+var users = Enumerable.Range(1, 1000).Select(i => new User
+{
+    Id = $"user-{i}", Name = $"User {i}", Age = 20 + i
+});
+var count = await store.BatchInsert(users); // single transaction, prepared command reused
+
+// Inside a transaction — uses the existing transaction
+await store.RunInTransaction(async tx =>
+{
+    await tx.BatchInsert(moreUsers);
+    await tx.Insert(singleUser);
+});
 ```
 
 ### Get

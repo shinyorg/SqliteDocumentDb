@@ -22,6 +22,7 @@ A lightweight SQLite-based document store for .NET that turns SQLite into a sche
 - **Typed Id lookups** — `Get`, `Remove`, `SetProperty`, and `RemoveProperty` accept the Id as `object` so you can pass a `Guid`, `int`, `long`, or `string` directly. Unsupported types throw `ArgumentException`.
 - **Pagination** — `store.Query<User>().OrderBy(u => u.Name).Paginate(0, 20).ToList()` translates to SQL `LIMIT`/`OFFSET`.
 - **Transactions** — `store.RunInTransaction(async tx => { ... })` with automatic commit/rollback.
+- **Batch insert** — `store.BatchInsert(items)` inserts a collection in a single transaction with prepared command reuse. Auto-generates IDs and rolls back atomically on failure.
 - **Hot backup** — `store.Backup("/path/to/backup.db")` copies the database to a file using the SQLite Online Backup API while the store remains usable.
 
 ## Comparison with alternatives
@@ -480,6 +481,33 @@ await store.Insert(user);
 ```csharp
 await store.Insert(new User { Id = "user-1", Name = "Alice", Age = 25 });
 // Throws if "user-1" already exists
+```
+
+### Batch insert
+
+`BatchInsert` inserts multiple documents in a single transaction with prepared command reuse for optimal performance. Returns the count inserted. If any document fails (e.g. duplicate Id), the entire batch is rolled back. Auto-generates IDs for Guid, int, and long Id types.
+
+```csharp
+var users = Enumerable.Range(1, 1000).Select(i => new User
+{
+    Id = $"user-{i}",
+    Name = $"User {i}",
+    Age = 20 + (i % 50)
+});
+
+var count = await store.BatchInsert(users); // 1000 — single transaction, prepared command reused
+
+// Works with auto-generated IDs too
+var models = Enumerable.Range(1, 500).Select(i => new GuidIdModel { Name = $"Item {i}" }).ToList();
+await store.BatchInsert(models); // All Ids auto-populated
+
+// Inside a transaction — uses the existing transaction (no nesting)
+await store.RunInTransaction(async tx =>
+{
+    await tx.BatchInsert(moreUsers);
+    await tx.Insert(singleUser);
+    // All committed or rolled back together
+});
 ```
 
 ### Update a document (full replacement)
@@ -1061,6 +1089,42 @@ await foreach (var user in store.QueryStream<User>(
     Console.WriteLine(user.Name);
 }
 ```
+
+### Dynamic query building
+
+The fluent query builder is composable — each `.Where()` call returns a new builder, so you can conditionally chain filters, sorting, and pagination at runtime:
+
+```csharp
+// Search parameters (from user input, API request, etc.)
+string? nameFilter = "A";
+int? minAge = null;
+bool? isActive = true;
+string sortBy = "name";
+int page = 0, pageSize = 10;
+
+var query = store.Query<User>();
+
+if (!string.IsNullOrEmpty(nameFilter))
+    query = query.Where(u => u.Name.StartsWith(nameFilter));
+
+if (minAge.HasValue)
+    query = query.Where(u => u.Age >= minAge.Value);
+
+if (isActive.HasValue)
+    query = query.Where(u => u.IsActive == isActive.Value);
+
+query = sortBy switch
+{
+    "name" => query.OrderBy(u => u.Name),
+    "age"  => query.OrderByDescending(u => u.Age),
+    _      => query
+};
+
+var results = await query.Paginate(page * pageSize, pageSize).ToList();
+var totalCount = await query.Count(); // same filters, no pagination
+```
+
+Multiple `.Where()` calls are AND'd together in the generated SQL.
 
 ## Transactions
 

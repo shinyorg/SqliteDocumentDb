@@ -23,6 +23,17 @@ public interface IDocumentStore
     Task Insert<T>(T document, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
+    /// Inserts multiple documents in a single transaction with command reuse for optimal performance.
+    /// Auto-generates IDs for Guid, int, and long Id types. String Ids must be pre-set on every document.
+    /// If any document fails (e.g. duplicate Id), the entire batch is rolled back.
+    /// When called inside <see cref="RunInTransaction"/>, uses the existing transaction (no nested transaction).
+    /// </summary>
+    /// <param name="documents">The documents to insert.</param>
+    /// <param name="jsonTypeInfo">Optional type metadata for AOT-safe serialization. When null, resolved from <see cref="DocumentStoreOptions.JsonSerializerOptions"/> or via reflection.</param>
+    /// <returns>The number of documents inserted.</returns>
+    Task<int> BatchInsert<T>(IEnumerable<T> documents, JsonTypeInfo<T>? jsonTypeInfo = null, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
     /// Updates an existing document by replacing it entirely. The document must have a non-default Id.
     /// If the document is not found, throws <see cref="InvalidOperationException"/>.
     /// </summary>
