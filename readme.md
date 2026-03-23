@@ -1,4 +1,7 @@
-# Shiny.SqliteDocumentDb
+# Shiny.SqliteDocumentDb (THIS LIBRARY NOW IS CALLED SHINY.DOCUMENTDB)
+
+[New Repository](https://github.com/shinyorg/documentdb)
+
 
 [![NuGet](https://img.shields.io/nuget/v/Shiny.SqliteDocumentDb.svg)](https://www.nuget.org/packages/Shiny.SqliteDocumentDb/)
 
